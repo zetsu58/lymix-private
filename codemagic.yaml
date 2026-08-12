@@ -1,0 +1,26 @@
+workflows:
+  android-debug-apk:
+    name: LYMIX Android Debug APK
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    scripts:
+      - name: Unpack Flutter project
+        script: |
+          rm -rf source
+          mkdir -p source
+          unzip -q Lymix_V8_16_GITHUB_UPLOAD_LITE_DENO_READY.zip -d source
+      - name: Complete Android scaffold
+        script: |
+          cd source/Lymix
+          flutter create --platforms=android --org com.lymix --project-name lymix .
+      - name: Get Flutter packages
+        script: |
+          cd source/Lymix
+          flutter pub get
+      - name: Build debug APK
+        script: |
+          cd source/Lymix
+          flutter build apk --debug
+    artifacts:
+      - source/Lymix/build/**/outputs/apk/**/*.apk
