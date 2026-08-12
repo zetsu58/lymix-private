@@ -13,7 +13,7 @@ workflows:
       - name: Complete Android scaffold
         script: |
           cd source/Lymix
-          flutter create --platforms=android --org com.lymix --project-name lymix .
+          flutter create --no-pub --platforms=android --org com.lymix --project-name lymix .
       - name: Get Flutter packages
         script: |
           cd source/Lymix
