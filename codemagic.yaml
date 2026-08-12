@@ -10,149 +10,100 @@ workflows:
     scripts:
       - name: Locate and unpack Lymix project
         script: |
-          set -e
+          set -euo pipefail
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          ZIP_FILE="./LYMIX_V8_19_PREMIUM_NAV_READY.zip"
 
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found."
+          if [ ! -f "$ZIP_FILE" ]; then
+            ZIP_FILE=$(find . -maxdepth 1 -type f -name "LYMIX_V8_19*.zip" | head -n 1)
+          fi
+
+          if [ -z "${ZIP_FILE:-}" ]; then
+            echo "ERROR: ZIP file not found in repository root."
             exit 1
           fi
 
           echo "Using ZIP: $ZIP_FILE"
-
           rm -rf source
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
 
           test -f source/Lymix/pubspec.yaml
+          test -f source/Lymix/lib/main.dart
 
-      - name: Check Flutter installation
+      - name: Generate Android scaffold for installed Flutter
         script: |
-          set -e
-          flutter --version
-          dart --version
-          java -version
-
-      - name: Complete Android scaffold
-        script: |
-          set -e
+          set -euo pipefail
           cd source/Lymix
+
+          # Keep Lymix-specific Android resources before replacing the old scaffold.
+          rm -rf /tmp/lymix_android_backup /tmp/lymix_scaffold
+          mkdir -p /tmp/lymix_android_backup
+
+          cp android/app/src/main/AndroidManifest.xml /tmp/lymix_android_backup/AndroidManifest.xml
+          cp -R android/app/src/main/res /tmp/lymix_android_backup/res
 
           flutter create \
             --no-pub \
             --platforms=android \
             --org com.lymix \
             --project-name lymix \
-            .
+            /tmp/lymix_scaffold
 
-      - name: Fix duplicate Gradle files
+          rm -rf android
+          cp -R /tmp/lymix_scaffold/android ./android
+
+          # Restore app permissions, label and Lymix launcher resources.
+          cp /tmp/lymix_android_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          rm -rf android/app/src/main/res
+          cp -R /tmp/lymix_android_backup/res android/app/src/main/res
+
+      - name: Set Lymix Android identity
         script: |
-          set -e
-          cd source/Lymix
-
-          if [ -f android/build.gradle ] && [ -f android/build.gradle.kts ]; then
-            rm -f android/build.gradle.kts
-          fi
-
-          if [ -f android/app/build.gradle ] && [ -f android/app/build.gradle.kts ]; then
-            rm -f android/app/build.gradle.kts
-          fi
-
-          if [ -f android/settings.gradle ] && [ -f android/settings.gradle.kts ]; then
-            rm -f android/settings.gradle.kts
-          fi
-
-      - name: Configure Android toolchain
-        script: |
-          set -e
+          set -euo pipefail
           cd source/Lymix
 
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          settings = Path("android/settings.gradle")
-          if not settings.exists():
-              raise SystemExit("android/settings.gradle missing")
-
-          s = settings.read_text()
-
-          s = re.sub(
-              r'id\s+["\']com\.android\.application["\']\s+version\s+["\'][^"\']+["\']',
-              'id "com.android.application" version "8.11.1"',
-              s
-          )
-
-          s = re.sub(
-              r'id\s+["\']org\.jetbrains\.kotlin\.android["\']\s+version\s+["\'][^"\']+["\']',
-              'id "org.jetbrains.kotlin.android" version "2.2.20"',
-              s
-          )
-
-          settings.write_text(s)
-
-          wrapper = Path("android/gradle/wrapper/gradle-wrapper.properties")
-          wrapper.parent.mkdir(parents=True, exist_ok=True)
-
-          wrapper.write_text(
-              "distributionBase=GRADLE_USER_HOME\n"
-              "distributionPath=wrapper/dists\n"
-              "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.1-all.zip\n"
-              "networkTimeout=120000\n"
-              "validateDistributionUrl=true\n"
-              "zipStoreBase=GRADLE_USER_HOME\n"
-              "zipStorePath=wrapper/dists\n"
-          )
-
-          props = Path("android/gradle.properties")
-          text = props.read_text() if props.exists() else ""
-
-          lines = [
-              line for line in text.splitlines()
-              if not line.startswith("android.newDsl=")
-              and not line.startswith("android.builtInKotlin=")
+          candidates = [
+              Path("android/app/build.gradle"),
+              Path("android/app/build.gradle.kts"),
           ]
+          build_file = next((p for p in candidates if p.exists()), None)
+          if build_file is None:
+              raise SystemExit("Android app Gradle file not found")
 
-          lines.append("android.newDsl=false")
-          lines.append("android.builtInKotlin=false")
+          s = build_file.read_text()
 
-          props.write_text("\n".join(lines) + "\n")
+          # Groovy and Kotlin DSL forms.
+          s = re.sub(r'namespace\s*=\s*["\'][^"\']+["\']', 'namespace = "com.lymix.app"', s)
+          s = re.sub(r'namespace\s+["\'][^"\']+["\']', 'namespace "com.lymix.app"', s)
+          s = re.sub(r'applicationId\s*=\s*["\'][^"\']+["\']', 'applicationId = "com.lymix.app"', s)
+          s = re.sub(r'applicationId\s+["\'][^"\']+["\']', 'applicationId "com.lymix.app"', s)
+          build_file.write_text(s)
 
-          print("===== settings.gradle =====")
-          print(settings.read_text())
+          kotlin_root = Path("android/app/src/main/kotlin")
+          if kotlin_root.exists():
+              for f in kotlin_root.rglob("MainActivity.kt"):
+                  f.unlink()
 
-          print("===== gradle-wrapper.properties =====")
-          print(wrapper.read_text())
+          target = kotlin_root / "com/lymix/app/MainActivity.kt"
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_text(
+              "package com.lymix.app\n\n"
+              "import io.flutter.embedding.android.FlutterActivity\n\n"
+              "class MainActivity : FlutterActivity()\n"
+          )
 
-          print("===== gradle.properties =====")
-          print(props.read_text())
+          print(f"Using Android build file: {build_file}")
+          print(build_file.read_text())
           PY
 
-      - name: Verify toolchain versions
+      - name: Normalize Flutter dependencies
         script: |
-          set -e
-          cd source/Lymix
-
-          echo "=== AGP ==="
-          grep -n "com.android.application" android/settings.gradle
-
-          echo "=== Kotlin ==="
-          grep -n "org.jetbrains.kotlin.android" android/settings.gradle
-
-          echo "=== Gradle ==="
-          grep "distributionUrl" android/gradle/wrapper/gradle-wrapper.properties
-
-          echo "=== Java ==="
-          java -version
-
-          grep -q 'com.android.application" version "8.11.1"' android/settings.gradle
-          grep -q 'org.jetbrains.kotlin.android" version "2.2.20"' android/settings.gradle
-          grep -q 'gradle-8.14.1-all.zip' android/gradle/wrapper/gradle-wrapper.properties
-
-      - name: Fix Agora dependency
-        script: |
-          set -e
+          set -euo pipefail
           cd source/Lymix
 
           python3 - <<'PY'
@@ -161,72 +112,65 @@ workflows:
 
           p = Path("pubspec.yaml")
           s = p.read_text()
-
           s2, n = re.subn(
               r'(?m)^(\s*agora_rtc_engine\s*:\s*)[^\n#]+',
               r'\g<1>^6.5.4',
-              s
+              s,
           )
-
           if n:
               p.write_text(s2)
               print("agora_rtc_engine pinned to ^6.5.4")
           else:
-              print("Agora dependency unchanged.")
+              print("Agora dependency not present; no change needed")
           PY
 
-      - name: Flutter pub get
+      - name: Get Flutter packages
         script: |
-          set -e
+          set -euo pipefail
           cd source/Lymix
-
           flutter clean
           flutter pub get
 
-      - name: Analyze Dart
+      - name: Validate project before build
         script: |
+          set -euo pipefail
           cd source/Lymix
-          flutter analyze --no-fatal-infos --no-fatal-warnings || true
 
-      - name: Prepare Gradle
+          echo "=== Flutter ==="
+          flutter --version
+          echo "=== Java ==="
+          java -version
+          echo "=== Android build files ==="
+          find android -maxdepth 3 -type f \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "gradle-wrapper.properties" \) -print
+
+          # Analyzer must not hide compile errors. Warnings/info do not fail the build.
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Warm Gradle with retry
         script: |
-          set -e
+          set -euo pipefail
           cd source/Lymix/android
-
           chmod +x gradlew
 
           for attempt in 1 2 3 4; do
             echo "Gradle attempt $attempt/4"
-
             if ./gradlew --version; then
-              echo "Gradle ready"
-              break
+              exit 0
             fi
 
             if [ "$attempt" -eq 4 ]; then
-              echo "ERROR: Gradle preparation failed."
+              echo "ERROR: Gradle could not be prepared after 4 attempts."
               exit 1
             fi
 
-            rm -rf "$HOME/.gradle/wrapper/dists/gradle-8.14.1-all"
+            rm -rf "$HOME/.gradle/wrapper/dists"/*
             sleep 10
           done
 
-      - name: Preflight Flutter Android check
-        script: |
-          set -e
-          cd source/Lymix
-
-          flutter analyze --suggestions || true
-
-          echo "=== Android Gradle files ==="
-          find android -maxdepth 2 \( -name "*.gradle" -o -name "*.gradle.kts" \) -print
-
       - name: Build debug APK
         script: |
-          set -e
+          set -euo pipefail
           cd source/Lymix
-
           flutter build apk --debug
 
     artifacts:
