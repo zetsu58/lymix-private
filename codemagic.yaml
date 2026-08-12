@@ -29,8 +29,169 @@ workflows:
 
       - name: Check Flutter installation
         script: |
+          set -e
           flutter --version
           dart --version
           java -version
 
-      - name
+      - name: Complete Android scaffold
+        script: |
+          set -e
+          cd source/Lymix
+
+          flutter create \
+            --no-pub \
+            --platforms=android \
+            --org com.lymix \
+            --project-name lymix \
+            .
+
+      - name: Fix duplicate Gradle files
+        script: |
+          set -e
+          cd source/Lymix
+
+          if [ -f android/build.gradle ] && [ -f android/build.gradle.kts ]; then
+            rm -f android/build.gradle.kts
+          fi
+
+          if [ -f android/app/build.gradle ] && [ -f android/app/build.gradle.kts ]; then
+            rm -f android/app/build.gradle.kts
+          fi
+
+          if [ -f android/settings.gradle ] && [ -f android/settings.gradle.kts ]; then
+            rm -f android/settings.gradle.kts
+          fi
+
+      - name: Configure Android toolchain
+        script: |
+          set -e
+          cd source/Lymix
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          settings = Path("android/settings.gradle")
+          if not settings.exists():
+              raise SystemExit("android/settings.gradle missing")
+
+          s = settings.read_text()
+
+          s = re.sub(
+              r'id\s+["\']com\.android\.application["\']\s+version\s+["\'][^"\']+["\']',
+              'id "com.android.application" version "8.11.1"',
+              s
+          )
+
+          settings.write_text(s)
+
+          wrapper = Path("android/gradle/wrapper/gradle-wrapper.properties")
+          wrapper.parent.mkdir(parents=True, exist_ok=True)
+
+          wrapper.write_text(
+              "distributionBase=GRADLE_USER_HOME\n"
+              "distributionPath=wrapper/dists\n"
+              "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.1-all.zip\n"
+              "networkTimeout=120000\n"
+              "validateDistributionUrl=true\n"
+              "zipStoreBase=GRADLE_USER_HOME\n"
+              "zipStorePath=wrapper/dists\n"
+          )
+
+          props = Path("android/gradle.properties")
+          text = props.read_text() if props.exists() else ""
+
+          lines = [
+              line for line in text.splitlines()
+              if not line.startswith("android.newDsl=")
+              and not line.startswith("android.builtInKotlin=")
+          ]
+
+          lines.append("android.newDsl=false")
+          lines.append("android.builtInKotlin=false")
+
+          props.write_text("\n".join(lines) + "\n")
+
+          print("===== AGP =====")
+          print(settings.read_text())
+
+          print("===== Gradle wrapper =====")
+          print(wrapper.read_text())
+
+          print("===== Gradle properties =====")
+          print(props.read_text())
+          PY
+
+      - name: Fix Agora dependency
+        script: |
+          set -e
+          cd source/Lymix
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("pubspec.yaml")
+          s = p.read_text()
+
+          s2, n = re.subn(
+              r'(?m)^(\s*agora_rtc_engine\s*:\s*)[^\n#]+',
+              r'\g<1>^6.5.4',
+              s
+          )
+
+          if n:
+              p.write_text(s2)
+              print("agora_rtc_engine pinned to ^6.5.4")
+          else:
+              print("Agora dependency unchanged.")
+          PY
+
+      - name: Flutter pub get
+        script: |
+          set -e
+          cd source/Lymix
+
+          flutter clean
+          flutter pub get
+
+      - name: Analyze Dart
+        script: |
+          cd source/Lymix
+          flutter analyze --no-fatal-infos --no-fatal-warnings || true
+
+      - name: Prepare Gradle
+        script: |
+          set -e
+          cd source/Lymix/android
+
+          chmod +x gradlew
+
+          for attempt in 1 2 3 4; do
+            echo "Gradle attempt $attempt/4"
+
+            if ./gradlew --version; then
+              echo "Gradle ready"
+              break
+            fi
+
+            if [ "$attempt" -eq 4 ]; then
+              echo "ERROR: Gradle preparation failed."
+              exit 1
+            fi
+
+            rm -rf "$HOME/.gradle/wrapper/dists/gradle-8.14.1-all"
+            sleep 10
+          done
+
+      - name: Build debug APK
+        script: |
+          set -e
+          cd source/Lymix
+
+          flutter build apk --debug
+
+    artifacts:
+      - source/Lymix/build/app/outputs/flutter-apk/*.apk
+      - source/Lymix/build/**/outputs/apk/**/*.apk
