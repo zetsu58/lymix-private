@@ -1,6 +1,6 @@
 workflows:
   android-debug-apk:
-    name: LYMIX V20.9 Hardened Android Debug APK
+    name: LYMIX V20.10 Hardened Android Debug APK
     max_build_duration: 60
 
     environment:
@@ -13,7 +13,7 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack Lymix V20.9 package
+      - name: Locate and unpack Lymix V20.10 package
         script: |
           set -euo pipefail
 
@@ -21,24 +21,24 @@ workflows:
           ls -lah
 
           ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_9*.zip' -o -iname '*V20_9*.zip' -o -iname '*V20.9*.zip' \) \
+            \( -iname 'LYMIX_V20_10*.zip' -o -iname '*V20_10*.zip' -o -iname '*V20.10*.zip' \) \
             -print | sort | head -n 1)"
 
           if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V20.9 ZIP found in repository root."
+            echo "ERROR: No V20.10 ZIP found in repository root."
             echo "ZIP files currently present:"
             find . -maxdepth 1 -type f -iname '*.zip' -print || true
             exit 1
           fi
 
           MATCH_COUNT="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_9*.zip' -o -iname '*V20_9*.zip' -o -iname '*V20.9*.zip' \) \
+            \( -iname 'LYMIX_V20_10*.zip' -o -iname '*V20_10*.zip' -o -iname '*V20.10*.zip' \) \
             -print | wc -l | tr -d ' ')"
 
           if [ "$MATCH_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one V20.9 ZIP found."
+            echo "ERROR: More than one V20.10 ZIP found."
             find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V20_9*.zip' -o -iname '*V20_9*.zip' -o -iname '*V20.9*.zip' \) \
+              \( -iname 'LYMIX_V20_10*.zip' -o -iname '*V20_10*.zip' -o -iname '*V20.10*.zip' \) \
               -print
             exit 1
           fi
@@ -56,8 +56,8 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
-          if [ "$FOUND_VERSION" != "20.9.0+209" ]; then
-            echo "ERROR: Expected version 20.9.0+209 but found $FOUND_VERSION"
+          if [ "$FOUND_VERSION" != "20.10.0+210" ]; then
+            echo "ERROR: Expected version 20.10.0+210 but found $FOUND_VERSION"
             exit 1
           fi
 
@@ -151,6 +151,131 @@ workflows:
 
           flutter pub deps --style=compact > dependency-tree.txt
           echo "Dependency resolution successful."
+
+      - name: Normalize all Android plugin compileSdk values
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+
+          PUB_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
+          echo "Pub cache: $PUB_ROOT"
+
+          python3 - "$PUB_ROOT" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          pub_root = Path(sys.argv[1])
+          patched = []
+          inspected = []
+
+          def patch_gradle(path: Path):
+              try:
+                  text = path.read_text()
+              except Exception:
+                  return
+
+              if "android" not in text:
+                  return
+
+              original = text
+
+              # Groovy DSL common forms
+              text = re.sub(
+                  r'compileSdkVersion\s*=\s*(?:flutter\.compileSdkVersion|\d+)',
+                  'compileSdkVersion = 36',
+                  text
+              )
+              text = re.sub(
+                  r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)',
+                  'compileSdkVersion 36',
+                  text
+              )
+              text = re.sub(
+                  r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)',
+                  'compileSdk 36',
+                  text
+              )
+
+              # Kotlin DSL common forms
+              text = re.sub(
+                  r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)',
+                  'compileSdk = 36',
+                  text
+              )
+
+              # Variable-style declarations sometimes used by older plugins
+              text = re.sub(
+                  r'(?m)^(\s*(?:def\s+)?compileSdkVersion\s*=\s*)\d+\s*$',
+                  r'\g<1>36',
+                  text
+              )
+              text = re.sub(
+                  r'(?m)^(\s*(?:def\s+)?compileSdk\s*=\s*)\d+\s*$',
+                  r'\g<1>36',
+                  text
+              )
+
+              if text != original:
+                  path.write_text(text)
+                  patched.append(str(path))
+
+              inspected.append(str(path))
+
+          for hosted in (pub_root / "hosted").glob("*"):
+              if not hosted.is_dir():
+                  continue
+              for package in hosted.iterdir():
+                  android = package / "android"
+                  if not android.is_dir():
+                      continue
+                  for name in ("build.gradle", "build.gradle.kts"):
+                      p = android / name
+                      if p.exists():
+                          patch_gradle(p)
+
+          print(f"Inspected Android plugin Gradle files: {len(inspected)}")
+          print(f"Patched Android plugin Gradle files: {len(patched)}")
+          for p in patched:
+              print("PATCHED", p)
+
+          # Fail early if any plugin still has a hard-coded compileSdk below 36.
+          offenders = []
+          patterns = [
+              re.compile(r'compileSdkVersion\s*=?\s*(\d+)'),
+              re.compile(r'compileSdk\s*=?\s*(\d+)'),
+          ]
+
+          for raw in inspected:
+              p = Path(raw)
+              try:
+                  text = p.read_text()
+              except Exception:
+                  continue
+              for pat in patterns:
+                  for m in pat.finditer(text):
+                      try:
+                          value = int(m.group(1))
+                      except Exception:
+                          continue
+                      if value < 36:
+                          offenders.append((str(p), value, m.group(0)))
+
+          if offenders:
+              print("ERROR: Android plugins still pinned below compileSdk 36:")
+              for item in offenders:
+                  print(item)
+              raise SystemExit(1)
+
+          print("All detected hard-coded Android plugin compileSdk values are >= 36.")
+          PY
+
+          echo "=== file_picker Gradle after normalization ==="
+          FILE_PICKER_DIR="$(find "$PUB_ROOT" -type d -name 'file_picker-8.1.7' -print | head -n 1)"
+          if [ -n "${FILE_PICKER_DIR:-}" ]; then
+            sed -n '1,180p' "$FILE_PICKER_DIR/android/build.gradle" 2>/dev/null || true
+            sed -n '1,180p' "$FILE_PICKER_DIR/android/build.gradle.kts" 2>/dev/null || true
+          fi
 
       - name: Harden Android SDK compatibility
         script: |
@@ -299,8 +424,11 @@ workflows:
           cd source/Lymix/android
           chmod +x gradlew
 
-          echo "=== AAR metadata check ==="
+          echo "=== App AAR metadata check ==="
           ./gradlew :app:checkDebugAarMetadata --stacktrace
+
+          echo "=== File Picker AAR metadata check ==="
+          ./gradlew :file_picker:checkDebugAarMetadata --stacktrace
 
           echo "=== Manifest merge check ==="
           ./gradlew :app:processDebugMainManifest --stacktrace
