@@ -45,7 +45,24 @@ workflows:
             --project-name lymix \
             .
 
-      - name: Force compatible Android toolchain
+      - name: Fix duplicate Gradle files
+        script: |
+          set -e
+          cd source/Lymix
+
+          if [ -f android/build.gradle ] && [ -f android/build.gradle.kts ]; then
+            rm -f android/build.gradle.kts
+          fi
+
+          if [ -f android/app/build.gradle ] && [ -f android/app/build.gradle.kts ]; then
+            rm -f android/app/build.gradle.kts
+          fi
+
+          if [ -f android/settings.gradle ] && [ -f android/settings.gradle.kts ]; then
+            rm -f android/settings.gradle.kts
+          fi
+
+      - name: Configure compatible Android toolchain
         script: |
           set -e
           cd source/Lymix
@@ -55,17 +72,22 @@ workflows:
           import re
 
           settings = Path("android/settings.gradle")
-          s = settings.read_text()
 
-          s = re.sub(
-              r'id\s+"com\.android\.application"\s+version\s+"[^"]+"',
-              'id "com.android.application" version "8.7.3"',
-              s
+          if settings.exists():
+              s = settings.read_text()
+
+              s = re.sub(
+                  r'id\s+["\']com\.android\.application["\']\s+version\s+["\'][^"\']+["\']',
+                  'id "com.android.application" version "8.7.3"',
+                  s
+              )
+
+              settings.write_text(s)
+
+          wrapper = Path(
+              "android/gradle/wrapper/gradle-wrapper.properties"
           )
 
-          settings.write_text(s)
-
-          wrapper = Path("android/gradle/wrapper/gradle-wrapper.properties")
           wrapper.parent.mkdir(parents=True, exist_ok=True)
 
           wrapper.write_text(
@@ -73,25 +95,32 @@ workflows:
               "distributionPath=wrapper/dists\n"
               "zipStoreBase=GRADLE_USER_HOME\n"
               "zipStorePath=wrapper/dists\n"
-              "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.9-all.zip\n"
+              "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.1-all.zip\n"
           )
 
           props = Path("android/gradle.properties")
-          p = props.read_text() if props.exists() else ""
+
+          text = props.read_text() if props.exists() else ""
 
           lines = [
-              line for line in p.splitlines()
+              line for line in text.splitlines()
               if not line.startswith("android.newDsl=")
               and not line.startswith("android.builtInKotlin=")
           ]
 
+          lines.append("android.newDsl=false")
+          lines.append("android.builtInKotlin=false")
+
           props.write_text("\n".join(lines) + "\n")
 
-          print("=== settings.gradle ===")
-          print(settings.read_text())
+          print("===== settings.gradle =====")
+          print(settings.read_text() if settings.exists() else "missing")
 
-          print("=== gradle-wrapper.properties ===")
+          print("===== gradle-wrapper.properties =====")
           print(wrapper.read_text())
+
+          print("===== gradle.properties =====")
+          print(props.read_text())
           PY
 
       - name: Fix Agora dependency
@@ -123,22 +152,26 @@ workflows:
         script: |
           set -e
           cd source/Lymix
+
           flutter clean
           flutter pub get
 
-      - name: Verify Android versions
+      - name: Verify Android configuration
         script: |
           set -e
           cd source/Lymix
 
-          echo "=== AGP ==="
-          grep -n "com.android.application" android/settings.gradle
-
-          echo "=== Gradle ==="
+          echo "===== Gradle ====="
           cat android/gradle/wrapper/gradle-wrapper.properties
 
-          echo "=== Java ==="
-          java -version
+          echo "===== Gradle properties ====="
+          cat android/gradle.properties
+
+          echo "===== AGP ====="
+          grep -R "com.android.application" android/settings.gradle || true
+
+          echo "===== Duplicate files ====="
+          find android -maxdepth 2 \( -name "*.gradle" -o -name "*.gradle.kts" \) -print
 
       - name: Analyze Dart
         script: |
@@ -149,6 +182,7 @@ workflows:
         script: |
           set -e
           cd source/Lymix
+
           flutter build apk --debug
 
     artifacts:
