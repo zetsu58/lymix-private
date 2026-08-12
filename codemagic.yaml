@@ -84,6 +84,12 @@ workflows:
               s
           )
 
+          s = re.sub(
+              r'id\s+["\']org\.jetbrains\.kotlin\.android["\']\s+version\s+["\'][^"\']+["\']',
+              'id "org.jetbrains.kotlin.android" version "2.2.20"',
+              s
+          )
+
           settings.write_text(s)
 
           wrapper = Path("android/gradle/wrapper/gradle-wrapper.properties")
@@ -113,15 +119,36 @@ workflows:
 
           props.write_text("\n".join(lines) + "\n")
 
-          print("===== AGP =====")
+          print("===== settings.gradle =====")
           print(settings.read_text())
 
-          print("===== Gradle wrapper =====")
+          print("===== gradle-wrapper.properties =====")
           print(wrapper.read_text())
 
-          print("===== Gradle properties =====")
+          print("===== gradle.properties =====")
           print(props.read_text())
           PY
+
+      - name: Verify toolchain versions
+        script: |
+          set -e
+          cd source/Lymix
+
+          echo "=== AGP ==="
+          grep -n "com.android.application" android/settings.gradle
+
+          echo "=== Kotlin ==="
+          grep -n "org.jetbrains.kotlin.android" android/settings.gradle
+
+          echo "=== Gradle ==="
+          grep "distributionUrl" android/gradle/wrapper/gradle-wrapper.properties
+
+          echo "=== Java ==="
+          java -version
+
+          grep -q 'com.android.application" version "8.11.1"' android/settings.gradle
+          grep -q 'org.jetbrains.kotlin.android" version "2.2.20"' android/settings.gradle
+          grep -q 'gradle-8.14.1-all.zip' android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Fix Agora dependency
         script: |
@@ -184,6 +211,16 @@ workflows:
             rm -rf "$HOME/.gradle/wrapper/dists/gradle-8.14.1-all"
             sleep 10
           done
+
+      - name: Preflight Flutter Android check
+        script: |
+          set -e
+          cd source/Lymix
+
+          flutter analyze --suggestions || true
+
+          echo "=== Android Gradle files ==="
+          find android -maxdepth 2 \( -name "*.gradle" -o -name "*.gradle.kts" \) -print
 
       - name: Build debug APK
         script: |
