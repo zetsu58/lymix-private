@@ -20,26 +20,29 @@ workflows:
           echo "=== Repository root ==="
           ls -lah
 
-          mapfile -t MATCHES < <(
-            find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V20_4*.zip' -o -iname '*V20_4*.zip' -o -iname '*V20.4*.zip' \) \
-              -print | sort
-          )
+          ZIP_FILE="$(find . -maxdepth 1 -type f \
+            \( -iname 'LYMIX_V20_4*.zip' -o -iname '*V20_4*.zip' -o -iname '*V20.4*.zip' \) \
+            -print | sort | head -n 1)"
 
-          if [ "${#MATCHES[@]}" -eq 0 ]; then
+          if [ -z "${ZIP_FILE:-}" ]; then
             echo "ERROR: No V20.4 ZIP found in repository root."
             echo "ZIP files currently present:"
             find . -maxdepth 1 -type f -iname '*.zip' -print || true
             exit 1
           fi
 
-          if [ "${#MATCHES[@]}" -gt 1 ]; then
-            echo "ERROR: More than one V20.4 ZIP found. Keep only one to avoid building the wrong package:"
-            printf ' - %s\n' "${MATCHES[@]}"
+          MATCH_COUNT="$(find . -maxdepth 1 -type f \
+            \( -iname 'LYMIX_V20_4*.zip' -o -iname '*V20_4*.zip' -o -iname '*V20.4*.zip' \) \
+            -print | wc -l | tr -d ' ')"
+
+          if [ "$MATCH_COUNT" -gt 1 ]; then
+            echo "ERROR: More than one V20.4 ZIP found."
+            find . -maxdepth 1 -type f \
+              \( -iname 'LYMIX_V20_4*.zip' -o -iname '*V20_4*.zip' -o -iname '*V20.4*.zip' \) \
+              -print
             exit 1
           fi
 
-          ZIP_FILE="${MATCHES[0]}"
           echo "Using package: $ZIP_FILE"
 
           unzip -tq "$ZIP_FILE"
@@ -51,7 +54,7 @@ workflows:
           test -f source/Lymix/pubspec.yaml
           test -f source/Lymix/lib/main.dart
 
-          FOUND_VERSION=$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)
+          FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
           if [ "$FOUND_VERSION" != "20.4.0+204" ]; then
@@ -71,39 +74,95 @@ workflows:
         script: |
           set -euo pipefail
           cd source/Lymix
+
           rm -rf /tmp/lymix_android_backup /tmp/lymix_scaffold
           mkdir -p /tmp/lymix_android_backup
-          cp android/app/src/main/AndroidManifest.xml /tmp/lymix_android_backup/AndroidManifest.xml
-          cp -R android/app/src/main/res /tmp/lymix_android_backup/res
-          flutter create --no-pub --platforms=android --org com.lymix --project-name lymix /tmp/lymix_scaffold
+
+          cp android/app/src/main/AndroidManifest.xml \
+            /tmp/lymix_android_backup/AndroidManifest.xml
+
+          cp -R android/app/src/main/res \
+            /tmp/lymix_android_backup/res
+
+          flutter create \
+            --no-pub \
+            --platforms=android \
+            --org com.lymix \
+            --project-name lymix \
+            /tmp/lymix_scaffold
+
           rm -rf android
           cp -R /tmp/lymix_scaffold/android ./android
-          cp /tmp/lymix_android_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+
+          cp /tmp/lymix_android_backup/AndroidManifest.xml \
+            android/app/src/main/AndroidManifest.xml
+
           rm -rf android/app/src/main/res
-          cp -R /tmp/lymix_android_backup/res android/app/src/main/res
+          cp -R /tmp/lymix_android_backup/res \
+            android/app/src/main/res
 
       - name: Set Lymix Android identity
         script: |
           set -euo pipefail
           cd source/Lymix
+
           python3 - <<'PY'
           from pathlib import Path
           import re
-          candidates=[Path('android/app/build.gradle'),Path('android/app/build.gradle.kts')]
-          build_file=next((p for p in candidates if p.exists()),None)
-          if build_file is None: raise SystemExit('Android app Gradle file not found')
-          s=build_file.read_text()
-          s=re.sub(r'namespace\s*=\s*["\'][^"\']+["\']','namespace = "com.lymix.app"',s)
-          s=re.sub(r'namespace\s+["\'][^"\']+["\']','namespace "com.lymix.app"',s)
-          s=re.sub(r'applicationId\s*=\s*["\'][^"\']+["\']','applicationId = "com.lymix.app"',s)
-          s=re.sub(r'applicationId\s+["\'][^"\']+["\']','applicationId "com.lymix.app"',s)
+
+          candidates = [
+              Path("android/app/build.gradle"),
+              Path("android/app/build.gradle.kts"),
+          ]
+
+          build_file = next((p for p in candidates if p.exists()), None)
+
+          if build_file is None:
+              raise SystemExit("Android app Gradle file not found")
+
+          s = build_file.read_text()
+
+          s = re.sub(
+              r'namespace\s*=\s*["\'][^"\']+["\']',
+              'namespace = "com.lymix.app"',
+              s
+          )
+
+          s = re.sub(
+              r'namespace\s+["\'][^"\']+["\']',
+              'namespace "com.lymix.app"',
+              s
+          )
+
+          s = re.sub(
+              r'applicationId\s*=\s*["\'][^"\']+["\']',
+              'applicationId = "com.lymix.app"',
+              s
+          )
+
+          s = re.sub(
+              r'applicationId\s+["\'][^"\']+["\']',
+              'applicationId "com.lymix.app"',
+              s
+          )
+
           build_file.write_text(s)
-          root=Path('android/app/src/main/kotlin')
+
+          root = Path("android/app/src/main/kotlin")
+
           if root.exists():
-              for f in root.rglob('MainActivity.kt'): f.unlink()
-          target=root/'com/lymix/app/MainActivity.kt'
-          target.parent.mkdir(parents=True,exist_ok=True)
-          target.write_text('package com.lymix.app\n\nimport io.flutter.embedding.android.FlutterActivity\n\nclass MainActivity : FlutterActivity()\n')
+              for f in root.rglob("MainActivity.kt"):
+                  f.unlink()
+
+          target = root / "com/lymix/app/MainActivity.kt"
+          target.parent.mkdir(parents=True, exist_ok=True)
+
+          target.write_text(
+              "package com.lymix.app\n\n"
+              "import io.flutter.embedding.android.FlutterActivity\n\n"
+              "class MainActivity : FlutterActivity()\n"
+          )
+
           print(build_file.read_text())
           PY
 
@@ -111,62 +170,101 @@ workflows:
         script: |
           set -euo pipefail
           cd source/Lymix
-          echo '=== Direct dependency pins ==='
+
+          echo "=== Direct dependency pins ==="
           grep -E '^  [a-zA-Z0-9_]+:' pubspec.yaml || true
+
           flutter pub get
+
           test -f pubspec.lock
+
           flutter pub deps --style=compact > dependency-tree.txt
+
           grep -E '^  agora_rtc_engine: 6\.5\.4$' pubspec.yaml
           grep -E '^  flutter_secure_storage: 9\.2\.2$' pubspec.yaml
-          echo 'Dependency resolution successful.'
+
+          echo "Dependency resolution successful."
 
       - name: Validate Dart compile surface
         script: |
           set -euo pipefail
           cd source/Lymix
+
           set +e
-          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyzer-output.txt
+
+          flutter analyze \
+            --no-fatal-infos \
+            --no-fatal-warnings \
+            2>&1 | tee analyzer-output.txt
+
           ANALYZE_EXIT=${PIPESTATUS[0]}
+
           set -e
+
           echo "Analyzer exit code: $ANALYZE_EXIT"
+
           if grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt >/dev/null; then
+            echo "Real analyzer errors found:"
             grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt
             exit 1
           fi
-          echo 'No Dart analyzer errors.'
+
+          echo "No Dart analyzer errors."
 
       - name: Compile tests
         script: |
           set -euo pipefail
           cd source/Lymix
+
           if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
-            flutter test --no-pub --reporter expanded 2>&1 | tee test-output.txt
+            flutter test \
+              --no-pub \
+              --reporter expanded \
+              2>&1 | tee test-output.txt
           else
-            echo 'No tests found.' | tee test-output.txt
+            echo "No tests found." | tee test-output.txt
           fi
 
       - name: Verify Android manifest and resources
         script: |
           set -euo pipefail
           cd source/Lymix
+
           test -f android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.RECORD_AUDIO' android/app/src/main/AndroidManifest.xml
-          grep -q 'android:icon="@mipmap/ic_launcher"' android/app/src/main/AndroidManifest.xml
+
+          grep -q 'android.permission.INTERNET' \
+            android/app/src/main/AndroidManifest.xml
+
+          grep -q 'android.permission.RECORD_AUDIO' \
+            android/app/src/main/AndroidManifest.xml
+
+          grep -q 'android:icon="@mipmap/ic_launcher"' \
+            android/app/src/main/AndroidManifest.xml
+
           for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             test -f "android/app/src/main/res/mipmap-$d/ic_launcher.png"
           done
-          echo 'Manifest and launcher resources verified.'
+
+          echo "Manifest and launcher resources verified."
 
       - name: Warm Gradle with retry
         script: |
           set -euo pipefail
           cd source/Lymix/android
+
           chmod +x gradlew
+
           for attempt in 1 2 3 4; do
             echo "Gradle attempt $attempt/4"
-            if ./gradlew --version; then exit 0; fi
-            if [ "$attempt" -eq 4 ]; then exit 1; fi
+
+            if ./gradlew --version; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 4 ]; then
+              exit 1
+            fi
+
             rm -rf "$HOME/.gradle/wrapper/dists"/*
             sleep 10
           done
@@ -175,8 +273,11 @@ workflows:
         script: |
           set -euo pipefail
           cd source/Lymix
+
           flutter build apk --debug --no-pub
+
           test -s build/app/outputs/flutter-apk/app-debug.apk
+
           ls -lh build/app/outputs/flutter-apk/app-debug.apk
 
     artifacts:
