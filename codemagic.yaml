@@ -1,59 +1,49 @@
 workflows:
   android-debug-apk:
-    name: LYMIX Android Debug APK
+    name: LYMIX V20.4 Hardened Android Debug APK
     max_build_duration: 60
 
     environment:
-      flutter: stable
+      flutter: 3.44.7
       java: 17
 
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
+
     scripts:
-      - name: Locate and unpack Lymix project
+      - name: Locate and unpack exact Lymix package
         script: |
           set -euo pipefail
-
-          ZIP_FILE="./LYMIX_V20_3_HARDENED_APK_READY.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
-            ZIP_FILE=$(find . -maxdepth 1 -type f -name "LYMIX_V20*.zip" | head -n 1)
-          fi
-
-          if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: ZIP file not found in repository root."
-            exit 1
-          fi
-
-          echo "Using ZIP: $ZIP_FILE"
+          ZIP_FILE="./LYMIX_V20_4_DETERMINISTIC_APK_READY.zip"
+          test -f "$ZIP_FILE" || { echo "ERROR: $ZIP_FILE missing"; exit 1; }
           rm -rf source
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
-
           test -f source/Lymix/pubspec.yaml
           test -f source/Lymix/lib/main.dart
+          grep -q '^version: 20.4.0+204$' source/Lymix/pubspec.yaml
 
-      - name: Generate Android scaffold for installed Flutter
+      - name: Verify pinned toolchain
+        script: |
+          set -euo pipefail
+          flutter --version
+          dart --version
+          java -version
+          flutter doctor -v
+
+      - name: Generate Android scaffold for pinned Flutter
         script: |
           set -euo pipefail
           cd source/Lymix
-
-          # Keep Lymix-specific Android resources before replacing the old scaffold.
           rm -rf /tmp/lymix_android_backup /tmp/lymix_scaffold
           mkdir -p /tmp/lymix_android_backup
-
           cp android/app/src/main/AndroidManifest.xml /tmp/lymix_android_backup/AndroidManifest.xml
           cp -R android/app/src/main/res /tmp/lymix_android_backup/res
-
-          flutter create \
-            --no-pub \
-            --platforms=android \
-            --org com.lymix \
-            --project-name lymix \
-            /tmp/lymix_scaffold
-
+          flutter create --no-pub --platforms=android --org com.lymix --project-name lymix /tmp/lymix_scaffold
           rm -rf android
           cp -R /tmp/lymix_scaffold/android ./android
-
-          # Restore app permissions, label and Lymix launcher resources.
           cp /tmp/lymix_android_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           rm -rf android/app/src/main/res
           cp -R /tmp/lymix_android_backup/res android/app/src/main/res
@@ -62,96 +52,87 @@ workflows:
         script: |
           set -euo pipefail
           cd source/Lymix
-
           python3 - <<'PY'
           from pathlib import Path
           import re
-
-          candidates = [
-              Path("android/app/build.gradle"),
-              Path("android/app/build.gradle.kts"),
-          ]
-          build_file = next((p for p in candidates if p.exists()), None)
-          if build_file is None:
-              raise SystemExit("Android app Gradle file not found")
-
-          s = build_file.read_text()
-
-          # Groovy and Kotlin DSL forms.
-          s = re.sub(r'namespace\s*=\s*["\'][^"\']+["\']', 'namespace = "com.lymix.app"', s)
-          s = re.sub(r'namespace\s+["\'][^"\']+["\']', 'namespace "com.lymix.app"', s)
-          s = re.sub(r'applicationId\s*=\s*["\'][^"\']+["\']', 'applicationId = "com.lymix.app"', s)
-          s = re.sub(r'applicationId\s+["\'][^"\']+["\']', 'applicationId "com.lymix.app"', s)
+          candidates=[Path('android/app/build.gradle'),Path('android/app/build.gradle.kts')]
+          build_file=next((p for p in candidates if p.exists()),None)
+          if build_file is None: raise SystemExit('Android app Gradle file not found')
+          s=build_file.read_text()
+          s=re.sub(r'namespace\s*=\s*["\'][^"\']+["\']','namespace = "com.lymix.app"',s)
+          s=re.sub(r'namespace\s+["\'][^"\']+["\']','namespace "com.lymix.app"',s)
+          s=re.sub(r'applicationId\s*=\s*["\'][^"\']+["\']','applicationId = "com.lymix.app"',s)
+          s=re.sub(r'applicationId\s+["\'][^"\']+["\']','applicationId "com.lymix.app"',s)
           build_file.write_text(s)
-
-          kotlin_root = Path("android/app/src/main/kotlin")
-          if kotlin_root.exists():
-              for f in kotlin_root.rglob("MainActivity.kt"):
-                  f.unlink()
-
-          target = kotlin_root / "com/lymix/app/MainActivity.kt"
-          target.parent.mkdir(parents=True, exist_ok=True)
-          target.write_text(
-              "package com.lymix.app\n\n"
-              "import io.flutter.embedding.android.FlutterActivity\n\n"
-              "class MainActivity : FlutterActivity()\n"
-          )
-
-          print(f"Using Android build file: {build_file}")
+          root=Path('android/app/src/main/kotlin')
+          if root.exists():
+              for f in root.rglob('MainActivity.kt'): f.unlink()
+          target=root/'com/lymix/app/MainActivity.kt'
+          target.parent.mkdir(parents=True,exist_ok=True)
+          target.write_text('package com.lymix.app\n\nimport io.flutter.embedding.android.FlutterActivity\n\nclass MainActivity : FlutterActivity()\n')
           print(build_file.read_text())
           PY
 
-      - name: Get Flutter packages
+      - name: Resolve and freeze Flutter dependencies
         script: |
           set -euo pipefail
           cd source/Lymix
-          flutter clean
+          echo '=== Direct dependency pins ==='
+          grep -E '^  [a-zA-Z0-9_]+:' pubspec.yaml || true
           flutter pub get
+          test -f pubspec.lock
+          flutter pub deps --style=compact > dependency-tree.txt
+          grep -E '^  agora_rtc_engine: 6\.5\.4$' pubspec.yaml
+          grep -E '^  flutter_secure_storage: 9\.2\.2$' pubspec.yaml
+          echo 'Dependency resolution successful.'
 
-      - name: Validate project before build
+      - name: Validate Dart compile surface
         script: |
           set -euo pipefail
           cd source/Lymix
-
-          echo "=== Flutter ==="
-          flutter --version
-          echo "=== Java ==="
-          java -version
-          echo "=== Android build files ==="
-          find android -maxdepth 3 -type f \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "gradle-wrapper.properties" \) -print
-
-          # Run analyzer for visibility, but do not let lint/info/warning exit codes block APK generation.
           set +e
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyzer-output.txt
           ANALYZE_EXIT=${PIPESTATUS[0]}
           set -e
-
           echo "Analyzer exit code: $ANALYZE_EXIT"
           if grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt >/dev/null; then
-            echo "ERROR: Real Dart analyzer errors found:"
-            grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt || true
+            grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt
             exit 1
           fi
+          echo 'No Dart analyzer errors.'
 
-          echo "No analyzer errors found. Continuing despite warnings/info."
+      - name: Compile tests
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
+            flutter test --no-pub --reporter expanded 2>&1 | tee test-output.txt
+          else
+            echo 'No tests found.' | tee test-output.txt
+          fi
+
+      - name: Verify Android manifest and resources
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          test -f android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.RECORD_AUDIO' android/app/src/main/AndroidManifest.xml
+          grep -q 'android:icon="@mipmap/ic_launcher"' android/app/src/main/AndroidManifest.xml
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "android/app/src/main/res/mipmap-$d/ic_launcher.png"
+          done
+          echo 'Manifest and launcher resources verified.'
 
       - name: Warm Gradle with retry
         script: |
           set -euo pipefail
           cd source/Lymix/android
           chmod +x gradlew
-
           for attempt in 1 2 3 4; do
             echo "Gradle attempt $attempt/4"
-            if ./gradlew --version; then
-              exit 0
-            fi
-
-            if [ "$attempt" -eq 4 ]; then
-              echo "ERROR: Gradle could not be prepared after 4 attempts."
-              exit 1
-            fi
-
+            if ./gradlew --version; then exit 0; fi
+            if [ "$attempt" -eq 4 ]; then exit 1; fi
             rm -rf "$HOME/.gradle/wrapper/dists"/*
             sleep 10
           done
@@ -160,9 +141,13 @@ workflows:
         script: |
           set -euo pipefail
           cd source/Lymix
-          flutter build apk --debug
+          flutter build apk --debug --no-pub
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          ls -lh build/app/outputs/flutter-apk/app-debug.apk
 
     artifacts:
       - source/Lymix/build/app/outputs/flutter-apk/*.apk
-      - source/Lymix/build/**/outputs/apk/**/*.apk
       - source/Lymix/analyzer-output.txt
+      - source/Lymix/test-output.txt
+      - source/Lymix/dependency-tree.txt
+      - source/Lymix/pubspec.lock
