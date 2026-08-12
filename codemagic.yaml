@@ -1,6 +1,6 @@
 workflows:
   android-debug-apk:
-    name: LYMIX V20.8 Hardened Android Debug APK
+    name: LYMIX V20.9 Hardened Android Debug APK
     max_build_duration: 60
 
     environment:
@@ -13,7 +13,7 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack Lymix V20.8 package
+      - name: Locate and unpack Lymix V20.9 package
         script: |
           set -euo pipefail
 
@@ -21,24 +21,24 @@ workflows:
           ls -lah
 
           ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_8*.zip' -o -iname '*V20_8*.zip' -o -iname '*V20.8*.zip' \) \
+            \( -iname 'LYMIX_V20_9*.zip' -o -iname '*V20_9*.zip' -o -iname '*V20.9*.zip' \) \
             -print | sort | head -n 1)"
 
           if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V20.8 ZIP found in repository root."
+            echo "ERROR: No V20.9 ZIP found in repository root."
             echo "ZIP files currently present:"
             find . -maxdepth 1 -type f -iname '*.zip' -print || true
             exit 1
           fi
 
           MATCH_COUNT="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_8*.zip' -o -iname '*V20_8*.zip' -o -iname '*V20.8*.zip' \) \
+            \( -iname 'LYMIX_V20_9*.zip' -o -iname '*V20_9*.zip' -o -iname '*V20.9*.zip' \) \
             -print | wc -l | tr -d ' ')"
 
           if [ "$MATCH_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one V20.8 ZIP found."
+            echo "ERROR: More than one V20.9 ZIP found."
             find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V20_8*.zip' -o -iname '*V20_8*.zip' -o -iname '*V20.8*.zip' \) \
+              \( -iname 'LYMIX_V20_9*.zip' -o -iname '*V20_9*.zip' -o -iname '*V20.9*.zip' \) \
               -print
             exit 1
           fi
@@ -56,8 +56,8 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
-          if [ "$FOUND_VERSION" != "20.8.0+208" ]; then
-            echo "ERROR: Expected version 20.8.0+208 but found $FOUND_VERSION"
+          if [ "$FOUND_VERSION" != "20.9.0+209" ]; then
+            echo "ERROR: Expected version 20.9.0+209 but found $FOUND_VERSION"
             exit 1
           fi
 
@@ -222,6 +222,51 @@ workflows:
               print(root_groovy.read_text())
           PY
 
+      - name: Apply AGP 9 compatibility for Agora
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+
+          PROPS="android/gradle.properties"
+          touch "$PROPS"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/gradle.properties")
+          existing = p.read_text().splitlines() if p.exists() else []
+
+          managed = {
+              "android.uniquePackageNames": "false",
+              "android.newDsl": "false",
+              "android.builtInKotlin": "false",
+          }
+
+          out = []
+          seen = set()
+
+          for line in existing:
+              stripped = line.strip()
+              key = stripped.split("=", 1)[0] if "=" in stripped else None
+              if key in managed:
+                  if key not in seen:
+                      out.append(f"{key}={managed[key]}")
+                      seen.add(key)
+              else:
+                  out.append(line)
+
+          for key, value in managed.items():
+              if key not in seen:
+                  out.append(f"{key}={value}")
+
+          p.write_text("\n".join(out).rstrip() + "\n")
+          print(p.read_text())
+          PY
+
+          grep -q '^android.uniquePackageNames=false$' "$PROPS"
+          grep -q '^android.newDsl=false$' "$PROPS"
+          grep -q '^android.builtInKotlin=false$' "$PROPS"
+
       - name: Verify Agora Android configuration
         script: |
           set -euo pipefail
@@ -248,14 +293,19 @@ workflows:
           echo "=== Root compileSdk override ==="
           grep -R -n 'compileSdkVersion.*36\|compileSdk.*36' android/build.gradle* android/app/build.gradle* || true
 
-      - name: Android AAR metadata preflight
+      - name: Android dependency and manifest preflight
         script: |
           set -euo pipefail
           cd source/Lymix/android
           chmod +x gradlew
 
-          echo "Checking AndroidX/Agora compileSdk compatibility before full APK build..."
+          echo "=== AAR metadata check ==="
           ./gradlew :app:checkDebugAarMetadata --stacktrace
+
+          echo "=== Manifest merge check ==="
+          ./gradlew :app:processDebugMainManifest --stacktrace
+
+          echo "Android dependency and manifest preflight passed."
 
       - name: Validate Dart compile surface
         script: |
