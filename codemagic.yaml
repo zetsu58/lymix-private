@@ -12,13 +12,10 @@ workflows:
         script: |
           set -e
 
-          echo "Repository files:"
-          ls -lah
-
           ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: Repository root does not contain a ZIP file."
+            echo "ERROR: ZIP file not found."
             exit 1
           fi
 
@@ -28,10 +25,7 @@ workflows:
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
 
-          if [ ! -f "source/Lymix/pubspec.yaml" ]; then
-            echo "ERROR: source/Lymix/pubspec.yaml not found."
-            exit 1
-          fi
+          test -f source/Lymix/pubspec.yaml
 
       - name: Check Flutter installation
         script: |
@@ -39,7 +33,7 @@ workflows:
           dart --version
           java -version
 
-      - name: Repair Android project
+      - name: Complete Android scaffold
         script: |
           set -e
           cd source/Lymix
@@ -51,41 +45,54 @@ workflows:
             --project-name lymix \
             .
 
-      - name: Inspect Android Gradle versions
+      - name: Force compatible Android toolchain
         script: |
           set -e
           cd source/Lymix
 
-          echo "===== android/settings.gradle ====="
-          cat android/settings.gradle || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
 
-          echo "===== android/build.gradle ====="
-          cat android/build.gradle || true
+          settings = Path("android/settings.gradle")
+          s = settings.read_text()
 
-          echo "===== android/app/build.gradle ====="
-          cat android/app/build.gradle || true
+          s = re.sub(
+              r'id\s+"com\.android\.application"\s+version\s+"[^"]+"',
+              'id "com.android.application" version "8.7.3"',
+              s
+          )
 
-          echo "===== gradle-wrapper.properties ====="
-          cat android/gradle/wrapper/gradle-wrapper.properties || true
+          settings.write_text(s)
 
-          echo "===== gradle.properties ====="
-          cat android/gradle.properties || true
+          wrapper = Path("android/gradle/wrapper/gradle-wrapper.properties")
+          wrapper.parent.mkdir(parents=True, exist_ok=True)
 
-      - name: Fix AGP 9 Flutter compatibility
-        script: |
-          set -e
-          cd source/Lymix
+          wrapper.write_text(
+              "distributionBase=GRADLE_USER_HOME\n"
+              "distributionPath=wrapper/dists\n"
+              "zipStoreBase=GRADLE_USER_HOME\n"
+              "zipStorePath=wrapper/dists\n"
+              "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.9-all.zip\n"
+          )
 
-          touch android/gradle.properties
+          props = Path("android/gradle.properties")
+          p = props.read_text() if props.exists() else ""
 
-          sed -i.bak '/^android.newDsl=/d' android/gradle.properties || true
-          sed -i.bak '/^android.builtInKotlin=/d' android/gradle.properties || true
+          lines = [
+              line for line in p.splitlines()
+              if not line.startswith("android.newDsl=")
+              and not line.startswith("android.builtInKotlin=")
+          ]
 
-          echo 'android.newDsl=false' >> android/gradle.properties
-          echo 'android.builtInKotlin=false' >> android/gradle.properties
+          props.write_text("\n".join(lines) + "\n")
 
-          echo "===== Final gradle.properties ====="
-          cat android/gradle.properties
+          print("=== settings.gradle ===")
+          print(settings.read_text())
+
+          print("=== gradle-wrapper.properties ===")
+          print(wrapper.read_text())
+          PY
 
       - name: Fix Agora dependency
         script: |
@@ -109,7 +116,7 @@ workflows:
               p.write_text(s2)
               print("agora_rtc_engine pinned to ^6.5.4")
           else:
-              print("agora_rtc_engine not found; leaving pubspec unchanged")
+              print("Agora dependency unchanged.")
           PY
 
       - name: Flutter pub get
@@ -119,7 +126,21 @@ workflows:
           flutter clean
           flutter pub get
 
-      - name: Analyze critical Dart errors
+      - name: Verify Android versions
+        script: |
+          set -e
+          cd source/Lymix
+
+          echo "=== AGP ==="
+          grep -n "com.android.application" android/settings.gradle
+
+          echo "=== Gradle ==="
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+          echo "=== Java ==="
+          java -version
+
+      - name: Analyze Dart
         script: |
           cd source/Lymix
           flutter analyze --no-fatal-infos --no-fatal-warnings || true
@@ -128,11 +149,7 @@ workflows:
         script: |
           set -e
           cd source/Lymix
-
-          echo "===== Final Gradle properties ====="
-          cat android/gradle.properties
-
-          flutter build apk --debug --verbose
+          flutter build apk --debug
 
     artifacts:
       - source/Lymix/build/app/outputs/flutter-apk/*.apk
