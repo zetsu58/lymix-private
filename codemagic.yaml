@@ -1,6 +1,6 @@
 workflows:
   android-debug-apk:
-    name: LYMIX V20.7 Hardened Android Debug APK
+    name: LYMIX V20.8 Hardened Android Debug APK
     max_build_duration: 60
 
     environment:
@@ -13,7 +13,7 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack Lymix V20.7 package
+      - name: Locate and unpack Lymix V20.8 package
         script: |
           set -euo pipefail
 
@@ -21,24 +21,24 @@ workflows:
           ls -lah
 
           ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_7*.zip' -o -iname '*V20_7*.zip' -o -iname '*V20.7*.zip' \) \
+            \( -iname 'LYMIX_V20_8*.zip' -o -iname '*V20_8*.zip' -o -iname '*V20.8*.zip' \) \
             -print | sort | head -n 1)"
 
           if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V20.7 ZIP found in repository root."
+            echo "ERROR: No V20.8 ZIP found in repository root."
             echo "ZIP files currently present:"
             find . -maxdepth 1 -type f -iname '*.zip' -print || true
             exit 1
           fi
 
           MATCH_COUNT="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_7*.zip' -o -iname '*V20_7*.zip' -o -iname '*V20.7*.zip' \) \
+            \( -iname 'LYMIX_V20_8*.zip' -o -iname '*V20_8*.zip' -o -iname '*V20.8*.zip' \) \
             -print | wc -l | tr -d ' ')"
 
           if [ "$MATCH_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one V20.7 ZIP found."
+            echo "ERROR: More than one V20.8 ZIP found."
             find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V20_7*.zip' -o -iname '*V20_7*.zip' -o -iname '*V20.7*.zip' \) \
+              \( -iname 'LYMIX_V20_8*.zip' -o -iname '*V20_8*.zip' -o -iname '*V20.8*.zip' \) \
               -print
             exit 1
           fi
@@ -56,8 +56,8 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
-          if [ "$FOUND_VERSION" != "20.7.0+207" ]; then
-            echo "ERROR: Expected version 20.7.0+207 but found $FOUND_VERSION"
+          if [ "$FOUND_VERSION" != "20.8.0+208" ]; then
+            echo "ERROR: Expected version 20.8.0+208 but found $FOUND_VERSION"
             exit 1
           fi
 
@@ -152,88 +152,110 @@ workflows:
           flutter pub deps --style=compact > dependency-tree.txt
           echo "Dependency resolution successful."
 
-      - name: Harden Android compileSdk for app and Agora
+      - name: Harden Android SDK compatibility
         script: |
           set -euo pipefail
           cd source/Lymix
 
-          echo "=== Force app compileSdk 36 ==="
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          candidates = [
-              Path("android/app/build.gradle"),
+          # 1) Force the application itself to compile against API 36.
+          app_candidates = [
               Path("android/app/build.gradle.kts"),
+              Path("android/app/build.gradle"),
           ]
-          build_file = next((p for p in candidates if p.exists()), None)
-          if build_file is None:
+          app = next((p for p in app_candidates if p.exists()), None)
+          if app is None:
               raise SystemExit("Android app Gradle file not found")
 
-          s = build_file.read_text()
+          s = app.read_text()
+          s = re.sub(
+              r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)',
+              'compileSdk = 36',
+              s,
+          )
+          s = re.sub(
+              r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)',
+              'compileSdkVersion 36',
+              s,
+          )
+          s = re.sub(
+              r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)',
+              'compileSdk 36',
+              s,
+          )
+          app.write_text(s)
 
-          # Kotlin DSL
-          s = re.sub(r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdk = 36', s)
-          # Groovy DSL
-          s = re.sub(r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion 36', s)
-          s = re.sub(r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdk 36', s)
+          # 2) Agora 6.5.4 uses a root-project fallback for compileSdk on
+          # some Android Gradle layouts. Set the root extra property so it
+          # receives 36 instead of falling back to android-31.
+          root_kts = Path("android/build.gradle.kts")
+          root_groovy = Path("android/build.gradle")
 
-          build_file.write_text(s)
-          print(build_file.read_text())
+          if root_kts.exists():
+              text = root_kts.read_text()
+              marker = 'extra["compileSdkVersion"] = 36'
+              if marker not in text:
+                  text = marker + "\n" + text
+              root_kts.write_text(text)
+              print("Patched root Kotlin DSL:", root_kts)
+
+          elif root_groovy.exists():
+              text = root_groovy.read_text()
+              marker = "ext.compileSdkVersion = 36"
+              if marker not in text:
+                  text = marker + "\n" + text
+              root_groovy.write_text(text)
+              print("Patched root Groovy DSL:", root_groovy)
+
+          else:
+              raise SystemExit("Android root Gradle file not found")
+
+          print("=== app Gradle ===")
+          print(app.read_text())
+          print("=== root Gradle ===")
+          if root_kts.exists():
+              print(root_kts.read_text())
+          else:
+              print(root_groovy.read_text())
           PY
 
-          echo "=== Locate Agora 6.5.4 plugin ==="
+      - name: Verify Agora Android configuration
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+
           PUB_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
           AGORA_DIR="$(find "$PUB_ROOT" -type d -name 'agora_rtc_engine-6.5.4' -print | head -n 1)"
 
           if [ -z "${AGORA_DIR:-}" ]; then
             echo "ERROR: agora_rtc_engine-6.5.4 not found in Pub cache"
-            find "$PUB_ROOT" -maxdepth 5 -type d -name 'agora_rtc_engine-*' -print || true
             exit 1
           fi
 
-          echo "Agora plugin: $AGORA_DIR"
-
-          python3 - "$AGORA_DIR" <<'PY'
-          from pathlib import Path
-          import re
-          import sys
-
-          root = Path(sys.argv[1])
-          candidates = [
-              root / "android/build.gradle",
-              root / "android/build.gradle.kts",
-          ]
-          gradle = next((p for p in candidates if p.exists()), None)
-          if gradle is None:
-              raise SystemExit("Agora Android Gradle file not found")
-
-          s = gradle.read_text()
-          original = s
-
-          # Common Agora/Groovy forms.
-          s = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', s)
-          s = re.sub(r'compileSdkVersion\s*=\s*\d+', 'compileSdkVersion = 36', s)
-          # Newer DSL forms if present.
-          s = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 36', s)
-          s = re.sub(r'compileSdk\s+\d+', 'compileSdk 36', s)
-
-          if s == original and not re.search(r'(compileSdkVersion|compileSdk).*36', s):
-              raise SystemExit("Could not identify Agora compileSdk declaration")
-
-          gradle.write_text(s)
-          print("Patched:", gradle)
-          print(gradle.read_text())
-          PY
-
-          echo "=== Verify compileSdk declarations ==="
-          grep -R -E 'compileSdk(Version)?[ =]+36' android/app/build.gradle* || true
-          grep -R -E 'compileSdk(Version)?[ =]+36' "$AGORA_DIR/android"/build.gradle* || true
-
-          if ! grep -R -E 'compileSdk(Version)?[ =]+36' "$AGORA_DIR/android"/build.gradle* >/dev/null; then
-            echo "ERROR: Agora compileSdk was not patched to 36"
+          echo "=== Agora Android Gradle source ==="
+          if [ -f "$AGORA_DIR/android/build.gradle" ]; then
+            sed -n '1,220p' "$AGORA_DIR/android/build.gradle"
+          elif [ -f "$AGORA_DIR/android/build.gradle.kts" ]; then
+            sed -n '1,220p' "$AGORA_DIR/android/build.gradle.kts"
+          else
+            echo "ERROR: Agora Android Gradle file missing"
             exit 1
           fi
+
+          echo "=== Root compileSdk override ==="
+          grep -R -n 'compileSdkVersion.*36\|compileSdk.*36' android/build.gradle* android/app/build.gradle* || true
+
+      - name: Android AAR metadata preflight
+        script: |
+          set -euo pipefail
+          cd source/Lymix/android
+          chmod +x gradlew
+
+          echo "Checking AndroidX/Agora compileSdk compatibility before full APK build..."
+          ./gradlew :app:checkDebugAarMetadata --stacktrace
 
       - name: Validate Dart compile surface
         script: |
