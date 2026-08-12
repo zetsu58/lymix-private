@@ -54,6 +54,22 @@ workflows:
             --project-name lymix \
             .
 
+      - name: Fix AGP 9 Flutter compatibility
+        script: |
+          set -e
+          cd source/Lymix
+
+          touch android/gradle.properties
+
+          if grep -q '^android.newDsl=' android/gradle.properties; then
+            sed -i.bak 's/^android.newDsl=.*/android.newDsl=false/' android/gradle.properties
+          else
+            echo 'android.newDsl=false' >> android/gradle.properties
+          fi
+
+          echo "gradle.properties:"
+          cat android/gradle.properties
+
       - name: Fix Agora dependency
         script: |
           set -e
