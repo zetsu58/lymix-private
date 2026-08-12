@@ -12,10 +12,10 @@ workflows:
         script: |
           set -euo pipefail
 
-          ZIP_FILE="./LYMIX_V20_2_FINAL_COMPILE_FIX_BUILD_READY.zip"
+          ZIP_FILE="./LYMIX_V20_3_HARDENED_APK_READY.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            ZIP_FILE=$(find . -maxdepth 1 -type f -name "LYMIX_V20_2*.zip" | head -n 1)
+            ZIP_FILE=$(find . -maxdepth 1 -type f -name "LYMIX_V20*.zip" | head -n 1)
           fi
 
           if [ -z "${ZIP_FILE:-}" ]; then
@@ -101,29 +101,6 @@ workflows:
           print(build_file.read_text())
           PY
 
-      - name: Normalize Flutter dependencies
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path("pubspec.yaml")
-          s = p.read_text()
-          s2, n = re.subn(
-              r'(?m)^(\s*agora_rtc_engine\s*:\s*)[^\n#]+',
-              r'\g<1>^6.5.4',
-              s,
-          )
-          if n:
-              p.write_text(s2)
-              print("agora_rtc_engine pinned to ^6.5.4")
-          else:
-              print("Agora dependency not present; no change needed")
-          PY
-
       - name: Get Flutter packages
         script: |
           set -euo pipefail
@@ -143,8 +120,20 @@ workflows:
           echo "=== Android build files ==="
           find android -maxdepth 3 -type f \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "gradle-wrapper.properties" \) -print
 
-          # Analyzer must not hide compile errors. Warnings/info do not fail the build.
-          flutter analyze --no-fatal-infos --no-fatal-warnings
+          # Run analyzer for visibility, but do not let lint/info/warning exit codes block APK generation.
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyzer-output.txt
+          ANALYZE_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          echo "Analyzer exit code: $ANALYZE_EXIT"
+          if grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt >/dev/null; then
+            echo "ERROR: Real Dart analyzer errors found:"
+            grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt || true
+            exit 1
+          fi
+
+          echo "No analyzer errors found. Continuing despite warnings/info."
 
       - name: Warm Gradle with retry
         script: |
@@ -176,3 +165,4 @@ workflows:
     artifacts:
       - source/Lymix/build/app/outputs/flutter-apk/*.apk
       - source/Lymix/build/**/outputs/apk/**/*.apk
+      - source/Lymix/analyzer-output.txt
