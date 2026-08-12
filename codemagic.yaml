@@ -28,9 +28,6 @@ workflows:
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
 
-          echo "Extracted contents:"
-          find source -maxdepth 2 -type f | head -50
-
           if [ ! -f "source/Lymix/pubspec.yaml" ]; then
             echo "ERROR: source/Lymix/pubspec.yaml not found."
             exit 1
@@ -54,6 +51,26 @@ workflows:
             --project-name lymix \
             .
 
+      - name: Inspect Android Gradle versions
+        script: |
+          set -e
+          cd source/Lymix
+
+          echo "===== android/settings.gradle ====="
+          cat android/settings.gradle || true
+
+          echo "===== android/build.gradle ====="
+          cat android/build.gradle || true
+
+          echo "===== android/app/build.gradle ====="
+          cat android/app/build.gradle || true
+
+          echo "===== gradle-wrapper.properties ====="
+          cat android/gradle/wrapper/gradle-wrapper.properties || true
+
+          echo "===== gradle.properties ====="
+          cat android/gradle.properties || true
+
       - name: Fix AGP 9 Flutter compatibility
         script: |
           set -e
@@ -67,11 +84,8 @@ workflows:
           echo 'android.newDsl=false' >> android/gradle.properties
           echo 'android.builtInKotlin=false' >> android/gradle.properties
 
-          echo "=== gradle.properties ==="
+          echo "===== Final gradle.properties ====="
           cat android/gradle.properties
-
-          grep -q '^android.newDsl=false$' android/gradle.properties
-          grep -q '^android.builtInKotlin=false$' android/gradle.properties
 
       - name: Fix Agora dependency
         script: |
@@ -115,11 +129,8 @@ workflows:
           set -e
           cd source/Lymix
 
-          echo "=== Final Gradle properties ==="
+          echo "===== Final Gradle properties ====="
           cat android/gradle.properties
-
-          echo "=== Flutter doctor ==="
-          flutter doctor -v
 
           flutter build apk --debug --verbose
 
