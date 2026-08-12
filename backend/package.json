@@ -2,6 +2,7 @@
   "name": "lymix-backend",
   "version": "8.16.0",
   "private": true,
+  "type": "commonjs",
   "main": "server.js",
   "scripts": {"start": "node server.js"},
   "engines": {"node": ">=20"},
