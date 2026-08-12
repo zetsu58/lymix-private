@@ -13,17 +13,51 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack exact Lymix package
+      - name: Locate and unpack Lymix V20.4 package
         script: |
           set -euo pipefail
-          ZIP_FILE="./LYMIX_V20_4_DETERMINISTIC_APK_READY.zip"
-          test -f "$ZIP_FILE" || { echo "ERROR: $ZIP_FILE missing"; exit 1; }
+
+          echo "=== Repository root ==="
+          ls -lah
+
+          mapfile -t MATCHES < <(
+            find . -maxdepth 1 -type f \
+              \( -iname 'LYMIX_V20_4*.zip' -o -iname '*V20_4*.zip' -o -iname '*V20.4*.zip' \) \
+              -print | sort
+          )
+
+          if [ "${#MATCHES[@]}" -eq 0 ]; then
+            echo "ERROR: No V20.4 ZIP found in repository root."
+            echo "ZIP files currently present:"
+            find . -maxdepth 1 -type f -iname '*.zip' -print || true
+            exit 1
+          fi
+
+          if [ "${#MATCHES[@]}" -gt 1 ]; then
+            echo "ERROR: More than one V20.4 ZIP found. Keep only one to avoid building the wrong package:"
+            printf ' - %s\n' "${MATCHES[@]}"
+            exit 1
+          fi
+
+          ZIP_FILE="${MATCHES[0]}"
+          echo "Using package: $ZIP_FILE"
+
+          unzip -tq "$ZIP_FILE"
+
           rm -rf source
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
+
           test -f source/Lymix/pubspec.yaml
           test -f source/Lymix/lib/main.dart
-          grep -q '^version: 20.4.0+204$' source/Lymix/pubspec.yaml
+
+          FOUND_VERSION=$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)
+          echo "Detected Lymix version: $FOUND_VERSION"
+
+          if [ "$FOUND_VERSION" != "20.4.0+204" ]; then
+            echo "ERROR: Expected version 20.4.0+204 but found $FOUND_VERSION"
+            exit 1
+          fi
 
       - name: Verify pinned toolchain
         script: |
