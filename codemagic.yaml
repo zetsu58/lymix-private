@@ -12,10 +12,10 @@ workflows:
         script: |
           set -euo pipefail
 
-          ZIP_FILE="./LYMIX_V20_1_COMPILE_FIX_BUILD_READY.zip"
+          ZIP_FILE="./LYMIX_V20_2_FINAL_COMPILE_FIX_BUILD_READY.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            ZIP_FILE=$(find . -maxdepth 1 -type f -name "LYMIX_V20*.zip" | head -n 1)
+            ZIP_FILE=$(find . -maxdepth 1 -type f -name "LYMIX_V20_2*.zip" | head -n 1)
           fi
 
           if [ -z "${ZIP_FILE:-}" ]; then
