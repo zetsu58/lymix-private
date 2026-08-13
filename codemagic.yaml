@@ -1,6 +1,6 @@
 workflows:
   android-debug-apk:
-    name: LYMIX V21.15 Hardened Android Debug APK
+    name: LYMIX V21.17 Hardened Android Debug APK
     max_build_duration: 60
 
     environment:
@@ -13,7 +13,7 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack Lymix V21.15 package
+      - name: Locate and unpack Lymix V21.17 package
         script: |
           set -euo pipefail
 
@@ -21,24 +21,24 @@ workflows:
           ls -lah
 
           ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V21_15*.zip' -o -iname '*V21_15*.zip' -o -iname '*V21.15*.zip' \) \
+            \( -iname 'LYMIX_V21_17*.zip' -o -iname '*V21_17*.zip' -o -iname '*V21.17*.zip' \) \
             -print | sort | head -n 1)"
 
           if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V21.15 ZIP found in repository root."
+            echo "ERROR: No V21.17 ZIP found in repository root."
             echo "ZIP files currently present:"
             find . -maxdepth 1 -type f -iname '*.zip' -print || true
             exit 1
           fi
 
           MATCH_COUNT="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V21_15*.zip' -o -iname '*V21_15*.zip' -o -iname '*V21.15*.zip' \) \
+            \( -iname 'LYMIX_V21_17*.zip' -o -iname '*V21_17*.zip' -o -iname '*V21.17*.zip' \) \
             -print | wc -l | tr -d ' ')"
 
           if [ "$MATCH_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one V21.15 ZIP found."
+            echo "ERROR: More than one V21.17 ZIP found."
             find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V21_15*.zip' -o -iname '*V21_15*.zip' -o -iname '*V21.15*.zip' \) \
+              \( -iname 'LYMIX_V21_17*.zip' -o -iname '*V21_17*.zip' -o -iname '*V21.17*.zip' \) \
               -print
             exit 1
           fi
@@ -56,8 +56,8 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
-          if [ "$FOUND_VERSION" != "21.15.0+229" ]; then
-            echo "ERROR: Expected version 21.15.0+229 but found $FOUND_VERSION"
+          if [ "$FOUND_VERSION" != "21.17.0+231" ]; then
+            echo "ERROR: Expected version 21.17.0+231 but found $FOUND_VERSION"
             exit 1
           fi
 
@@ -457,14 +457,14 @@ workflows:
 
           echo "V21 product integrity passed."
 
-      - name: Guard V21.15 analyzer regressions
+      - name: Guard V21.17 analyzer regressions
         script: |
           set -euo pipefail
           cd source/Lymix
           ! grep -R -n "Icons\\.swords" lib
           ! grep -n -E "[0-9]_[0-9]|[0-9]'[0-9]" lib/economy/quota_economy.dart
           grep -q "GiftTier" lib/screens/agency_coin_bank_screen.dart
-          echo "V21.15 regression guards passed."
+          echo "V21.17 regression guards passed."
 
       - name: Audit navigation and dead actions
         script: |
@@ -554,11 +554,11 @@ workflows:
           node --check admin_web/app.js
           echo "Creator verification integration passed."
 
-      - name: Validate V21.15 account security
+      - name: Validate V21.17 account security
         script: |
           set -euo pipefail
           cd source/Lymix
-          grep -q '^version: 21.15.0+229$' pubspec.yaml
+          grep -q '^version: 21.17.0+231$' pubspec.yaml
           test -f lib/screens/account_security_screen.dart
           test -f backend/routes/securityRoutes.js
           test -f backend/services/phoneVerificationService.js
@@ -567,7 +567,7 @@ workflows:
           node --check backend/server.js
           node --check backend/routes/securityRoutes.js
           node --check backend/services/phoneVerificationService.js
-          echo "V21.15 account security integration passed."
+          echo "V21.17 account security integration passed."
 
       - name: Validate Dart compile surface
         script: |
