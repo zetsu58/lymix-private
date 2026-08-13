@@ -20,41 +20,80 @@ workflows:
           echo "=== Repository root ==="
           ls -lah
 
-          ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V21_22_1*.zip' \
-               -o -iname '*V21_22_1*.zip' \
-               -o -iname '*V21.22.1*.zip' \
-               -o -iname '*ANALYZER_FIX_CODEMAGIC_READY*.zip' \) \
+          rm -rf source extracted
+          mkdir -p extracted source/Lymix
+
+          # Prefer the actual source ZIP if it exists in the repository.
+          SOURCE_ZIP="$(find . -maxdepth 1 -type f \
+            \( -iname 'LYMIX_V21_22_BUILD_FIXES_CODEMAGIC_HARDENED.zip' \
+               -o -iname 'LYMIX_V21_22_1_ANALYZER_FIX_CODEMAGIC_READY.zip' \
+               -o -iname '*ANALYZER_FIX_CODEMAGIC_READY*.zip' \
+               -o -iname '*BUILD_FIXES_CODEMAGIC_HARDENED*.zip' \) \
             -print | sort | head -n 1)"
 
-          if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V21.22.1 ZIP found in repository root."
-            echo "ZIP files currently present:"
-            find . -maxdepth 1 -type f -iname '*.zip' -print || true
+          # If only the GitHub bundle is present, unpack it first and locate
+          # the nested source ZIP inside.
+          if [ -z "${SOURCE_ZIP:-}" ]; then
+            BUNDLE_ZIP="$(find . -maxdepth 1 -type f \
+              \( -iname 'LYMIX_V21_22_1_CODEMAGIC_GITHUB_BUNDLE.zip' \
+                 -o -iname '*CODEMAGIC_GITHUB_BUNDLE*.zip' \) \
+              -print | sort | head -n 1)"
+
+            if [ -z "${BUNDLE_ZIP:-}" ]; then
+              echo "ERROR: Neither a Lymix source ZIP nor GitHub bundle ZIP was found."
+              echo "ZIP files currently present:"
+              find . -maxdepth 1 -type f -iname '*.zip' -print || true
+              exit 1
+            fi
+
+            echo "GitHub bundle detected: $BUNDLE_ZIP"
+            unzip -tq "$BUNDLE_ZIP"
+            mkdir -p extracted/bundle
+            unzip -q "$BUNDLE_ZIP" -d extracted/bundle
+
+            echo "=== Bundle contents ==="
+            find extracted/bundle -maxdepth 3 -type f -print | sort
+
+            SOURCE_ZIP="$(find extracted/bundle -type f \
+              \( -iname 'LYMIX_V21_22_BUILD_FIXES_CODEMAGIC_HARDENED.zip' \
+                 -o -iname 'LYMIX_V21_22_1_ANALYZER_FIX_CODEMAGIC_READY.zip' \
+                 -o -iname '*ANALYZER_FIX_CODEMAGIC_READY*.zip' \
+                 -o -iname '*BUILD_FIXES_CODEMAGIC_HARDENED*.zip' \) \
+              -print | sort | head -n 1)"
+
+            if [ -z "${SOURCE_ZIP:-}" ]; then
+              # Fallback: pick the first nested ZIP that is not another GitHub bundle.
+              SOURCE_ZIP="$(find extracted/bundle -type f -iname '*.zip' \
+                ! -iname '*CODEMAGIC_GITHUB_BUNDLE*.zip' \
+                -print | sort | head -n 1)"
+            fi
+          fi
+
+          if [ -z "${SOURCE_ZIP:-}" ]; then
+            echo "ERROR: Lymix source ZIP could not be resolved."
             exit 1
           fi
 
-          echo "Using package: $ZIP_FILE"
-          unzip -tq "$ZIP_FILE"
+          echo "Using source package: $SOURCE_ZIP"
+          unzip -tq "$SOURCE_ZIP"
 
-          rm -rf source extracted
-          mkdir -p extracted
-          unzip -q "$ZIP_FILE" -d extracted
+          mkdir -p extracted/source_zip
+          unzip -q "$SOURCE_ZIP" -d extracted/source_zip
 
-          PUBSPEC="$(find extracted -type f -name pubspec.yaml \
+          PUBSPEC="$(find extracted/source_zip -type f -name pubspec.yaml \
             -exec sh -c 'test -f "$(dirname "$1")/lib/main.dart" && printf "%s\n" "$1"' _ {} \; \
             | head -n 1)"
 
           if [ -z "${PUBSPEC:-}" ]; then
-            echo "ERROR: Flutter project not found inside ZIP."
-            find extracted -maxdepth 3 -type f | sort | head -n 200
+            echo "ERROR: Flutter project not found inside source ZIP."
+            echo "=== Source ZIP contents ==="
+            find extracted/source_zip -maxdepth 5 -type f -print | sort | head -n 300
             exit 1
           fi
 
           PROJECT="$(dirname "$PUBSPEC")"
-          echo "Detected project root: $PROJECT"
+          echo "Detected Flutter project root: $PROJECT"
 
-          mkdir -p source/Lymix
           cp -a "$PROJECT"/. source/Lymix/
 
           test -f source/Lymix/pubspec.yaml
@@ -63,10 +102,13 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
+          # V21.22.1 is an analyzer hotfix over the 21.22.0+237 app version.
           if [ "$FOUND_VERSION" != "21.22.0+237" ]; then
             echo "ERROR: Expected version 21.22.0+237 but found $FOUND_VERSION"
             exit 1
           fi
+
+          echo "Lymix source package resolved successfully."
 
       - name: Verify pinned toolchain
         script: |
