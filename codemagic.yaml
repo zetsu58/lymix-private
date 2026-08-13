@@ -56,8 +56,8 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
-          if [ "$FOUND_VERSION" != "21.17.2+233" ]; then
-            echo "ERROR: Expected version 21.17.2+233 but found $FOUND_VERSION"
+          if [ "$FOUND_VERSION" != "21.17.3+234" ]; then
+            echo "ERROR: Expected version 21.17.3+234 but found $FOUND_VERSION"
             exit 1
           fi
 
@@ -558,7 +558,7 @@ workflows:
         script: |
           set -euo pipefail
           cd source/Lymix
-          grep -q '^version: 21.17.2+233$' pubspec.yaml
+          grep -q '^version: 21.17.3+234$' pubspec.yaml
           test -f lib/screens/account_security_screen.dart
           test -f backend/routes/securityRoutes.js
           test -f backend/services/phoneVerificationService.js
