@@ -1,6 +1,6 @@
 workflows:
   android-debug-apk:
-    name: LYMIX V21.5.2 Hardened Android Debug APK
+    name: LYMIX V21.10 Hardened Android Debug APK
     max_build_duration: 60
 
     environment:
@@ -13,7 +13,7 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack Lymix V21.5.2 package
+      - name: Locate and unpack Lymix V21.10 package
         script: |
           set -euo pipefail
 
@@ -21,24 +21,24 @@ workflows:
           ls -lah
 
           ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V21_5_2*.zip' -o -iname '*V21_5_2*.zip' -o -iname '*V21.5.2*.zip' \) \
+            \( -iname 'LYMIX_V21_10*.zip' -o -iname '*V21_10*.zip' -o -iname '*V21.10*.zip' \) \
             -print | sort | head -n 1)"
 
           if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V21.5.2 ZIP found in repository root."
+            echo "ERROR: No V21.10 ZIP found in repository root."
             echo "ZIP files currently present:"
             find . -maxdepth 1 -type f -iname '*.zip' -print || true
             exit 1
           fi
 
           MATCH_COUNT="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V21_5_2*.zip' -o -iname '*V21_5_2*.zip' -o -iname '*V21.5.2*.zip' \) \
+            \( -iname 'LYMIX_V21_10*.zip' -o -iname '*V21_10*.zip' -o -iname '*V21.10*.zip' \) \
             -print | wc -l | tr -d ' ')"
 
           if [ "$MATCH_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one V21.5.2 ZIP found."
+            echo "ERROR: More than one V21.10 ZIP found."
             find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V21_5_2*.zip' -o -iname '*V21_5_2*.zip' -o -iname '*V21.5.2*.zip' \) \
+              \( -iname 'LYMIX_V21_10*.zip' -o -iname '*V21_10*.zip' -o -iname '*V21.10*.zip' \) \
               -print
             exit 1
           fi
@@ -56,8 +56,8 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
-          if [ "$FOUND_VERSION" != "21.5.2+217" ]; then
-            echo "ERROR: Expected version 21.5.2+217 but found $FOUND_VERSION"
+          if [ "$FOUND_VERSION" != "21.10.0+223" ]; then
+            echo "ERROR: Expected version 21.10.0+223 but found $FOUND_VERSION"
             exit 1
           fi
 
@@ -144,6 +144,7 @@ workflows:
           grep -E '^  agora_rtc_engine: 6\.5\.4$' pubspec.yaml
           grep -E '^  flutter_secure_storage: 9\.2\.2$' pubspec.yaml
           grep -E '^  file_picker: 8\.1\.7$' pubspec.yaml
+          grep -E '^  image_picker: 1\.2\.3$' pubspec.yaml
           grep -E '^  http: 1\.6\.0$' pubspec.yaml
 
           flutter pub get
@@ -456,14 +457,102 @@ workflows:
 
           echo "V21 product integrity passed."
 
-      - name: Guard V21.5.2 analyzer regressions
+      - name: Guard V21.10 analyzer regressions
         script: |
           set -euo pipefail
           cd source/Lymix
           ! grep -R -n "Icons\\.swords" lib
-          ! grep -R -n -E "[0-9]_[0-9]|[0-9]'[0-9]" lib
+          ! grep -n -E "[0-9]_[0-9]|[0-9]'[0-9]" lib/economy/quota_economy.dart
           grep -q "GiftTier" lib/screens/agency_coin_bank_screen.dart
-          echo "V21.5.2 regression guards passed."
+          echo "V21.10 regression guards passed."
+
+      - name: Audit navigation and dead actions
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          echo "=== Empty callbacks ==="
+          if grep -R -n -E "on(Tap|Pressed|LongPress):[[:space:]]*\(\)[[:space:]]*=>?[[:space:]]*\{[[:space:]]*\}" lib; then
+            echo "ERROR: empty user action callback found"
+            exit 1
+          fi
+          echo "=== Old FeatureHub profile placeholders ==="
+          if grep -R -n "FeatureHubScreen(title:.*Favor\|FeatureHubScreen(title:.*Çanta" lib; then
+            echo "ERROR: placeholder navigation remains"
+            exit 1
+          fi
+          test -f lib/screens/user_profile_screen.dart
+          test -f lib/screens/direct_message_screen.dart
+          test -f lib/screens/favorites_screen.dart
+          test -f lib/screens/inventory_screen.dart
+          echo "Navigation integrity passed."
+
+      - name: Validate clean-room architecture
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          test -f lib/services/game_provider_adapter.dart
+          test -f lib/services/game_session_controller.dart
+          test -f lib/services/room_runtime_controller.dart
+          test -f lib/services/social_presence_service.dart
+          test -f lib/models/game_session.dart
+          ! grep -R -n "userId: '101'" lib
+          ! grep -R -n -E "3\.65M|VIP3 • Lv38|128 katılımcı|316 katılım" lib
+          grep -q "SessionService.user" lib/screens/game_center_screen.dart
+          grep -q "getCatalog" lib/screens/game_center_screen.dart
+          echo "Clean-room architecture guards passed."
+
+      - name: Validate premium UI chrome
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          test -f lib/widgets/lymix_live_chrome.dart
+          grep -q "class LymixPromoCarousel" lib/widgets/lymix_live_chrome.dart
+          grep -q "class LymixSystemTicker" lib/widgets/lymix_live_chrome.dart
+          grep -q "class LymixTopTip" lib/widgets/lymix_live_chrome.dart
+          grep -q "class LymixFeaturePopup" lib/widgets/lymix_live_chrome.dart
+          echo "Premium UI chrome present."
+
+      - name: Validate hybrid admin architecture
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          test -f lib/services/admin_access_service.dart
+          test -f lib/screens/admin_hybrid_center_screen.dart
+          test -f lib/screens/admin_web_panel_screen.dart
+          grep -q "LYMIX_ADMIN_PANEL_URL" lib/screens/admin_web_panel_screen.dart
+          grep -q "AdminCapability" lib/services/admin_access_service.dart
+          echo "Hybrid admin architecture present."
+
+      - name: Validate hybrid admin web
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          test -f admin_web/index.html
+          test -f admin_web/styles.css
+          test -f admin_web/app.js
+          grep -q "app.use('/admin'" backend/server.js
+          grep -q "LYMIX_ADMIN_PANEL_URL" lib/screens/admin_web_panel_screen.dart
+          grep -q "LymixAdminBridge.acceptToken" lib/screens/admin_web_panel_screen.dart
+          ! grep -q "room_999" backend/server.js
+          ! grep -q "i.pravatar.cc" backend/server.js
+          echo "Hybrid admin web integration passed."
+
+      - name: Validate creator verification
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          test -f lib/screens/creator_verification_screen.dart
+          test -f lib/services/creator_verification_service.dart
+          test -f backend/routes/creatorVerificationRoutes.js
+          test -f backend/services/creatorVerificationService.js
+          grep -q "image_picker: 1.2.3" pubspec.yaml
+          grep -q "/api/creator-verification" backend/server.js
+          grep -q "creator-verifications" admin_web/app.js
+          node --check backend/server.js
+          node --check backend/routes/creatorVerificationRoutes.js
+          node --check backend/services/creatorVerificationService.js
+          node --check admin_web/app.js
+          echo "Creator verification integration passed."
 
       - name: Validate Dart compile surface
         script: |
