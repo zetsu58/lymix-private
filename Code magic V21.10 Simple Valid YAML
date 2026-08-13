@@ -1,5 +1,0 @@
-workflows:
-  hello-world:
-    name: LYMIX TEST
-    scripts:
-      - echo "Codemagic YAML detected"
