@@ -1,0 +1,162 @@
+workflows:
+  android-debug-apk:
+    name: LYMIX V21.10 Android Debug APK
+    max_build_duration: 60
+
+    environment:
+      flutter: 3.44.7
+      java: 17
+
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
+
+    scripts:
+      - name: Locate and unpack Lymix V21.10
+        script: |
+          set -eu
+
+          echo "=== Repository root ==="
+          ls -lah
+
+          ZIP_FILE=""
+
+          for candidate in \
+            "./LYMIX_V21_10_CREATOR_VERIFICATION_READY.zip" \
+            ./LYMIX_V21_10*.zip \
+            ./LYMIX*V21*10*.zip
+          do
+            if [ -f "$candidate" ]; then
+              ZIP_FILE="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: V21.10 ZIP not found."
+            echo "ZIP files in repository root:"
+            find . -maxdepth 1 -type f -name "*.zip" -print || true
+            exit 1
+          fi
+
+          echo "Using package: $ZIP_FILE"
+          unzip -tq "$ZIP_FILE"
+
+          rm -rf source
+          mkdir -p source
+          unzip -q "$ZIP_FILE" -d source
+
+          if [ ! -f source/Lymix/pubspec.yaml ]; then
+            echo "ERROR: source/Lymix/pubspec.yaml missing after unzip."
+            find source -maxdepth 3 -type f | head -100
+            exit 1
+          fi
+
+          if [ ! -f source/Lymix/lib/main.dart ]; then
+            echo "ERROR: source/Lymix/lib/main.dart missing."
+            exit 1
+          fi
+
+          echo "Detected version:"
+          grep '^version:' source/Lymix/pubspec.yaml || true
+
+      - name: Verify toolchain
+        script: |
+          set -eu
+          flutter --version
+          dart --version
+          java -version
+          flutter doctor -v
+
+      - name: Resolve Flutter dependencies
+        script: |
+          set -eu
+          cd source/Lymix
+          flutter clean
+          flutter pub get
+
+      - name: Validate Dart
+        script: |
+          set -eu
+          cd source/Lymix
+
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyzer-output.txt
+          ANALYZE_EXIT=$?
+          set -e
+
+          echo "Analyzer exit code: $ANALYZE_EXIT"
+
+          if grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt >/dev/null; then
+            echo "Real analyzer errors found:"
+            grep -E '^[[:space:]]*error[[:space:]]+•' analyzer-output.txt
+            exit 1
+          fi
+
+          echo "No real analyzer errors."
+
+      - name: Compile tests
+        script: |
+          set -eu
+          cd source/Lymix
+
+          if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
+            flutter test --no-pub --reporter expanded
+          else
+            echo "No tests found."
+          fi
+
+      - name: Prepare Gradle
+        script: |
+          set -eu
+          cd source/Lymix/android
+
+          chmod +x gradlew
+
+          attempt=1
+          while [ "$attempt" -le 4 ]; do
+            echo "Gradle attempt $attempt/4"
+
+            if ./gradlew --version; then
+              echo "Gradle ready."
+              break
+            fi
+
+            if [ "$attempt" -eq 4 ]; then
+              echo "ERROR: Gradle preparation failed."
+              exit 1
+            fi
+
+            rm -rf "$HOME/.gradle/wrapper/dists"/*
+            attempt=$((attempt + 1))
+            sleep 10
+          done
+
+      - name: Android dependency preflight
+        script: |
+          set -eu
+          cd source/Lymix/android
+          ./gradlew :app:dependencies --configuration debugRuntimeClasspath >/tmp/lymix-deps.txt
+          echo "Android dependency graph resolved."
+
+      - name: Build debug APK
+        script: |
+          set -eu
+          cd source/Lymix
+
+          flutter build apk --debug --no-pub
+
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: APK was not produced."
+            exit 1
+          fi
+
+          ls -lh "$APK"
+
+    artifacts:
+      - source/Lymix/build/app/outputs/flutter-apk/*.apk
+      - source/Lymix/analyzer-output.txt
+      - source/Lymix/pubspec.lock
