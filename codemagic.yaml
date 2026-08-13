@@ -1,6 +1,6 @@
 workflows:
   android-debug-apk:
-    name: LYMIX V20.10 Hardened Android Debug APK
+    name: LYMIX V21.5 Hardened Android Debug APK
     max_build_duration: 60
 
     environment:
@@ -13,7 +13,7 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack Lymix V20.10 package
+      - name: Locate and unpack Lymix V21.5 package
         script: |
           set -euo pipefail
 
@@ -21,24 +21,24 @@ workflows:
           ls -lah
 
           ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_10*.zip' -o -iname '*V20_10*.zip' -o -iname '*V20.10*.zip' \) \
+            \( -iname 'LYMIX_V21_5*.zip' -o -iname '*V21_5*.zip' -o -iname '*V21.5*.zip' \) \
             -print | sort | head -n 1)"
 
           if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V20.10 ZIP found in repository root."
+            echo "ERROR: No V21.5 ZIP found in repository root."
             echo "ZIP files currently present:"
             find . -maxdepth 1 -type f -iname '*.zip' -print || true
             exit 1
           fi
 
           MATCH_COUNT="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V20_10*.zip' -o -iname '*V20_10*.zip' -o -iname '*V20.10*.zip' \) \
+            \( -iname 'LYMIX_V21_5*.zip' -o -iname '*V21_5*.zip' -o -iname '*V21.5*.zip' \) \
             -print | wc -l | tr -d ' ')"
 
           if [ "$MATCH_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one V20.10 ZIP found."
+            echo "ERROR: More than one V21.5 ZIP found."
             find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V20_10*.zip' -o -iname '*V20_10*.zip' -o -iname '*V20.10*.zip' \) \
+              \( -iname 'LYMIX_V21_5*.zip' -o -iname '*V21_5*.zip' -o -iname '*V21.5*.zip' \) \
               -print
             exit 1
           fi
@@ -56,8 +56,8 @@ workflows:
           FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
           echo "Detected Lymix version: $FOUND_VERSION"
 
-          if [ "$FOUND_VERSION" != "20.10.0+210" ]; then
-            echo "ERROR: Expected version 20.10.0+210 but found $FOUND_VERSION"
+          if [ "$FOUND_VERSION" != "21.5.0+215" ]; then
+            echo "ERROR: Expected version 21.5.0+215 but found $FOUND_VERSION"
             exit 1
           fi
 
@@ -434,6 +434,27 @@ workflows:
           ./gradlew :app:processDebugMainManifest --stacktrace
 
           echo "Android dependency and manifest preflight passed."
+
+      - name: Validate V21 product integrity
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+
+          echo "=== Permanent room model ==="
+          test -f lib/services/permanent_room_service.dart
+          grep -q "class PermanentRoomService" lib/services/permanent_room_service.dart
+          grep -q "RoomPkController" lib/screens/room_screen.dart
+          grep -q "GiftTargetMode" lib/widgets/gift_send_sheet.dart
+          test -f lib/economy/quota_economy.dart
+          test -f lib/screens/agency_coin_bank_screen.dart
+
+          echo "=== Block known demo/fake social content ==="
+          if grep -R -n -E "LYMIX Creator [0-9]|Kullanıcı [0-9]|Demo \\+100K|Gece Sohbeti Özel|128 katılımcı|316 katılım" lib; then
+            echo "ERROR: known demo/fake production content detected"
+            exit 1
+          fi
+
+          echo "V21 product integrity passed."
 
       - name: Validate Dart compile surface
         script: |
