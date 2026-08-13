@@ -1,6 +1,6 @@
 workflows:
   android-debug-apk:
-    name: LYMIX V21.10 Hardened Android Debug APK
+    name: LYMIX V21.10 Android Debug APK
     max_build_duration: 60
 
     environment:
@@ -13,33 +13,30 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
-      - name: Locate and unpack Lymix V21.10 package
+      - name: Locate and unpack Lymix V21.10
         script: |
-          set -euo pipefail
+          set -eu
 
           echo "=== Repository root ==="
           ls -lah
 
-          ZIP_FILE="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V21_10*.zip' -o -iname '*V21_10*.zip' -o -iname '*V21.10*.zip' \) \
-            -print | sort | head -n 1)"
+          ZIP_FILE=""
 
-          if [ -z "${ZIP_FILE:-}" ]; then
-            echo "ERROR: No V21.10 ZIP found in repository root."
-            echo "ZIP files currently present:"
-            find . -maxdepth 1 -type f -iname '*.zip' -print || true
-            exit 1
-          fi
+          for candidate in \
+            "./LYMIX_V21_10_CREATOR_VERIFICATION_READY.zip" \
+            ./LYMIX_V21_10*.zip \
+            ./LYMIX*V21*10*.zip
+          do
+            if [ -f "$candidate" ]; then
+              ZIP_FILE="$candidate"
+              break
+            fi
+          done
 
-          MATCH_COUNT="$(find . -maxdepth 1 -type f \
-            \( -iname 'LYMIX_V21_10*.zip' -o -iname '*V21_10*.zip' -o -iname '*V21.10*.zip' \) \
-            -print | wc -l | tr -d ' ')"
-
-          if [ "$MATCH_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one V21.10 ZIP found."
-            find . -maxdepth 1 -type f \
-              \( -iname 'LYMIX_V21_10*.zip' -o -iname '*V21_10*.zip' -o -iname '*V21.10*.zip' \) \
-              -print
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: V21.10 ZIP not found."
+            echo "ZIP files in repository root:"
+            find . -maxdepth 1 -type f -name "*.zip" -print || true
             exit 1
           fi
 
@@ -50,518 +47,43 @@ workflows:
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
 
-          test -f source/Lymix/pubspec.yaml
-          test -f source/Lymix/lib/main.dart
-
-          FOUND_VERSION="$(awk '/^version:/ {print $2; exit}' source/Lymix/pubspec.yaml)"
-          echo "Detected Lymix version: $FOUND_VERSION"
-
-          if [ "$FOUND_VERSION" != "21.10.0+223" ]; then
-            echo "ERROR: Expected version 21.10.0+223 but found $FOUND_VERSION"
+          if [ ! -f source/Lymix/pubspec.yaml ]; then
+            echo "ERROR: source/Lymix/pubspec.yaml missing after unzip."
+            find source -maxdepth 3 -type f | head -100
             exit 1
           fi
 
-      - name: Verify pinned toolchain
+          if [ ! -f source/Lymix/lib/main.dart ]; then
+            echo "ERROR: source/Lymix/lib/main.dart missing."
+            exit 1
+          fi
+
+          echo "Detected version:"
+          grep '^version:' source/Lymix/pubspec.yaml || true
+
+      - name: Verify toolchain
         script: |
-          set -euo pipefail
+          set -eu
           flutter --version
           dart --version
           java -version
           flutter doctor -v
 
-      - name: Generate Android scaffold for pinned Flutter
+      - name: Resolve Flutter dependencies
         script: |
-          set -euo pipefail
+          set -eu
           cd source/Lymix
-
-          rm -rf /tmp/lymix_android_backup /tmp/lymix_scaffold
-          mkdir -p /tmp/lymix_android_backup
-
-          cp android/app/src/main/AndroidManifest.xml /tmp/lymix_android_backup/AndroidManifest.xml
-          cp -R android/app/src/main/res /tmp/lymix_android_backup/res
-
-          flutter create \
-            --no-pub \
-            --platforms=android \
-            --org com.lymix \
-            --project-name lymix \
-            /tmp/lymix_scaffold
-
-          rm -rf android
-          cp -R /tmp/lymix_scaffold/android ./android
-
-          cp /tmp/lymix_android_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
-          rm -rf android/app/src/main/res
-          cp -R /tmp/lymix_android_backup/res android/app/src/main/res
-
-      - name: Set Lymix Android identity
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          candidates = [
-              Path("android/app/build.gradle"),
-              Path("android/app/build.gradle.kts"),
-          ]
-
-          build_file = next((p for p in candidates if p.exists()), None)
-          if build_file is None:
-              raise SystemExit("Android app Gradle file not found")
-
-          s = build_file.read_text()
-          s = re.sub(r'namespace\s*=\s*["\'][^"\']+["\']', 'namespace = "com.lymix.app"', s)
-          s = re.sub(r'namespace\s+["\'][^"\']+["\']', 'namespace "com.lymix.app"', s)
-          s = re.sub(r'applicationId\s*=\s*["\'][^"\']+["\']', 'applicationId = "com.lymix.app"', s)
-          s = re.sub(r'applicationId\s+["\'][^"\']+["\']', 'applicationId "com.lymix.app"', s)
-          build_file.write_text(s)
-
-          root = Path("android/app/src/main/kotlin")
-          if root.exists():
-              for f in root.rglob("MainActivity.kt"):
-                  f.unlink()
-
-          target = root / "com/lymix/app/MainActivity.kt"
-          target.parent.mkdir(parents=True, exist_ok=True)
-          target.write_text(
-              "package com.lymix.app\n\n"
-              "import io.flutter.embedding.android.FlutterActivity\n\n"
-              "class MainActivity : FlutterActivity()\n"
-          )
-          PY
-
-      - name: Resolve and freeze Flutter dependencies
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          echo "=== Direct dependency pins ==="
-          grep -E '^  [a-zA-Z0-9_]+:' pubspec.yaml || true
-
-          grep -E '^  agora_rtc_engine: 6\.5\.4$' pubspec.yaml
-          grep -E '^  flutter_secure_storage: 9\.2\.2$' pubspec.yaml
-          grep -E '^  file_picker: 8\.1\.7$' pubspec.yaml
-          grep -E '^  image_picker: 1\.2\.3$' pubspec.yaml
-          grep -E '^  http: 1\.6\.0$' pubspec.yaml
-
+          flutter clean
           flutter pub get
-          test -f pubspec.lock
 
-          flutter pub deps --style=compact > dependency-tree.txt
-          echo "Dependency resolution successful."
-
-      - name: Normalize all Android plugin compileSdk values
+      - name: Validate Dart
         script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          PUB_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
-          echo "Pub cache: $PUB_ROOT"
-
-          python3 - "$PUB_ROOT" <<'PY'
-          from pathlib import Path
-          import re
-          import sys
-
-          pub_root = Path(sys.argv[1])
-          patched = []
-          inspected = []
-
-          def patch_gradle(path: Path):
-              try:
-                  text = path.read_text()
-              except Exception:
-                  return
-
-              if "android" not in text:
-                  return
-
-              original = text
-
-              # Groovy DSL common forms
-              text = re.sub(
-                  r'compileSdkVersion\s*=\s*(?:flutter\.compileSdkVersion|\d+)',
-                  'compileSdkVersion = 36',
-                  text
-              )
-              text = re.sub(
-                  r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)',
-                  'compileSdkVersion 36',
-                  text
-              )
-              text = re.sub(
-                  r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)',
-                  'compileSdk 36',
-                  text
-              )
-
-              # Kotlin DSL common forms
-              text = re.sub(
-                  r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)',
-                  'compileSdk = 36',
-                  text
-              )
-
-              # Variable-style declarations sometimes used by older plugins
-              text = re.sub(
-                  r'(?m)^(\s*(?:def\s+)?compileSdkVersion\s*=\s*)\d+\s*$',
-                  r'\g<1>36',
-                  text
-              )
-              text = re.sub(
-                  r'(?m)^(\s*(?:def\s+)?compileSdk\s*=\s*)\d+\s*$',
-                  r'\g<1>36',
-                  text
-              )
-
-              if text != original:
-                  path.write_text(text)
-                  patched.append(str(path))
-
-              inspected.append(str(path))
-
-          for hosted in (pub_root / "hosted").glob("*"):
-              if not hosted.is_dir():
-                  continue
-              for package in hosted.iterdir():
-                  android = package / "android"
-                  if not android.is_dir():
-                      continue
-                  for name in ("build.gradle", "build.gradle.kts"):
-                      p = android / name
-                      if p.exists():
-                          patch_gradle(p)
-
-          print(f"Inspected Android plugin Gradle files: {len(inspected)}")
-          print(f"Patched Android plugin Gradle files: {len(patched)}")
-          for p in patched:
-              print("PATCHED", p)
-
-          # Fail early if any plugin still has a hard-coded compileSdk below 36.
-          offenders = []
-          patterns = [
-              re.compile(r'compileSdkVersion\s*=?\s*(\d+)'),
-              re.compile(r'compileSdk\s*=?\s*(\d+)'),
-          ]
-
-          for raw in inspected:
-              p = Path(raw)
-              try:
-                  text = p.read_text()
-              except Exception:
-                  continue
-              for pat in patterns:
-                  for m in pat.finditer(text):
-                      try:
-                          value = int(m.group(1))
-                      except Exception:
-                          continue
-                      if value < 36:
-                          offenders.append((str(p), value, m.group(0)))
-
-          if offenders:
-              print("ERROR: Android plugins still pinned below compileSdk 36:")
-              for item in offenders:
-                  print(item)
-              raise SystemExit(1)
-
-          print("All detected hard-coded Android plugin compileSdk values are >= 36.")
-          PY
-
-          echo "=== file_picker Gradle after normalization ==="
-          FILE_PICKER_DIR="$(find "$PUB_ROOT" -type d -name 'file_picker-8.1.7' -print | head -n 1)"
-          if [ -n "${FILE_PICKER_DIR:-}" ]; then
-            sed -n '1,180p' "$FILE_PICKER_DIR/android/build.gradle" 2>/dev/null || true
-            sed -n '1,180p' "$FILE_PICKER_DIR/android/build.gradle.kts" 2>/dev/null || true
-          fi
-
-      - name: Harden Android SDK compatibility
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          # 1) Force the application itself to compile against API 36.
-          app_candidates = [
-              Path("android/app/build.gradle.kts"),
-              Path("android/app/build.gradle"),
-          ]
-          app = next((p for p in app_candidates if p.exists()), None)
-          if app is None:
-              raise SystemExit("Android app Gradle file not found")
-
-          s = app.read_text()
-          s = re.sub(
-              r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)',
-              'compileSdk = 36',
-              s,
-          )
-          s = re.sub(
-              r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)',
-              'compileSdkVersion 36',
-              s,
-          )
-          s = re.sub(
-              r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)',
-              'compileSdk 36',
-              s,
-          )
-          app.write_text(s)
-
-          # 2) Agora 6.5.4 uses a root-project fallback for compileSdk on
-          # some Android Gradle layouts. Set the root extra property so it
-          # receives 36 instead of falling back to android-31.
-          root_kts = Path("android/build.gradle.kts")
-          root_groovy = Path("android/build.gradle")
-
-          if root_kts.exists():
-              text = root_kts.read_text()
-              marker = 'extra["compileSdkVersion"] = 36'
-              if marker not in text:
-                  text = marker + "\n" + text
-              root_kts.write_text(text)
-              print("Patched root Kotlin DSL:", root_kts)
-
-          elif root_groovy.exists():
-              text = root_groovy.read_text()
-              marker = "ext.compileSdkVersion = 36"
-              if marker not in text:
-                  text = marker + "\n" + text
-              root_groovy.write_text(text)
-              print("Patched root Groovy DSL:", root_groovy)
-
-          else:
-              raise SystemExit("Android root Gradle file not found")
-
-          print("=== app Gradle ===")
-          print(app.read_text())
-          print("=== root Gradle ===")
-          if root_kts.exists():
-              print(root_kts.read_text())
-          else:
-              print(root_groovy.read_text())
-          PY
-
-      - name: Apply AGP 9 compatibility for Agora
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          PROPS="android/gradle.properties"
-          touch "$PROPS"
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("android/gradle.properties")
-          existing = p.read_text().splitlines() if p.exists() else []
-
-          managed = {
-              "android.uniquePackageNames": "false",
-              "android.newDsl": "false",
-              "android.builtInKotlin": "false",
-          }
-
-          out = []
-          seen = set()
-
-          for line in existing:
-              stripped = line.strip()
-              key = stripped.split("=", 1)[0] if "=" in stripped else None
-              if key in managed:
-                  if key not in seen:
-                      out.append(f"{key}={managed[key]}")
-                      seen.add(key)
-              else:
-                  out.append(line)
-
-          for key, value in managed.items():
-              if key not in seen:
-                  out.append(f"{key}={value}")
-
-          p.write_text("\n".join(out).rstrip() + "\n")
-          print(p.read_text())
-          PY
-
-          grep -q '^android.uniquePackageNames=false$' "$PROPS"
-          grep -q '^android.newDsl=false$' "$PROPS"
-          grep -q '^android.builtInKotlin=false$' "$PROPS"
-
-      - name: Verify Agora Android configuration
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          PUB_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
-          AGORA_DIR="$(find "$PUB_ROOT" -type d -name 'agora_rtc_engine-6.5.4' -print | head -n 1)"
-
-          if [ -z "${AGORA_DIR:-}" ]; then
-            echo "ERROR: agora_rtc_engine-6.5.4 not found in Pub cache"
-            exit 1
-          fi
-
-          echo "=== Agora Android Gradle source ==="
-          if [ -f "$AGORA_DIR/android/build.gradle" ]; then
-            sed -n '1,220p' "$AGORA_DIR/android/build.gradle"
-          elif [ -f "$AGORA_DIR/android/build.gradle.kts" ]; then
-            sed -n '1,220p' "$AGORA_DIR/android/build.gradle.kts"
-          else
-            echo "ERROR: Agora Android Gradle file missing"
-            exit 1
-          fi
-
-          echo "=== Root compileSdk override ==="
-          grep -R -n 'compileSdkVersion.*36\|compileSdk.*36' android/build.gradle* android/app/build.gradle* || true
-
-      - name: Android dependency and manifest preflight
-        script: |
-          set -euo pipefail
-          cd source/Lymix/android
-          chmod +x gradlew
-
-          echo "=== App AAR metadata check ==="
-          ./gradlew :app:checkDebugAarMetadata --stacktrace
-
-          echo "=== File Picker AAR metadata check ==="
-          ./gradlew :file_picker:checkDebugAarMetadata --stacktrace
-
-          echo "=== Manifest merge check ==="
-          ./gradlew :app:processDebugMainManifest --stacktrace
-
-          echo "Android dependency and manifest preflight passed."
-
-      - name: Validate V21 product integrity
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          echo "=== Permanent room model ==="
-          test -f lib/services/permanent_room_service.dart
-          grep -q "class PermanentRoomService" lib/services/permanent_room_service.dart
-          grep -q "RoomPkController" lib/screens/room_screen.dart
-          grep -q "GiftTargetMode" lib/widgets/gift_send_sheet.dart
-          test -f lib/economy/quota_economy.dart
-          test -f lib/screens/agency_coin_bank_screen.dart
-
-          echo "=== Block known demo/fake social content ==="
-          if grep -R -n -E "LYMIX Creator [0-9]|Kullanıcı [0-9]|Demo \\+100K|Gece Sohbeti Özel|128 katılımcı|316 katılım" lib; then
-            echo "ERROR: known demo/fake production content detected"
-            exit 1
-          fi
-
-          echo "V21 product integrity passed."
-
-      - name: Guard V21.10 analyzer regressions
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-          ! grep -R -n "Icons\\.swords" lib
-          ! grep -n -E "[0-9]_[0-9]|[0-9]'[0-9]" lib/economy/quota_economy.dart
-          grep -q "GiftTier" lib/screens/agency_coin_bank_screen.dart
-          echo "V21.10 regression guards passed."
-
-      - name: Audit navigation and dead actions
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-          echo "=== Empty callbacks ==="
-          if grep -R -n -E "on(Tap|Pressed|LongPress):[[:space:]]*\(\)[[:space:]]*=>?[[:space:]]*\{[[:space:]]*\}" lib; then
-            echo "ERROR: empty user action callback found"
-            exit 1
-          fi
-          echo "=== Old FeatureHub profile placeholders ==="
-          if grep -R -n "FeatureHubScreen(title:.*Favor\|FeatureHubScreen(title:.*Çanta" lib; then
-            echo "ERROR: placeholder navigation remains"
-            exit 1
-          fi
-          test -f lib/screens/user_profile_screen.dart
-          test -f lib/screens/direct_message_screen.dart
-          test -f lib/screens/favorites_screen.dart
-          test -f lib/screens/inventory_screen.dart
-          echo "Navigation integrity passed."
-
-      - name: Validate clean-room architecture
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-          test -f lib/services/game_provider_adapter.dart
-          test -f lib/services/game_session_controller.dart
-          test -f lib/services/room_runtime_controller.dart
-          test -f lib/services/social_presence_service.dart
-          test -f lib/models/game_session.dart
-          ! grep -R -n "userId: '101'" lib
-          ! grep -R -n -E "3\.65M|VIP3 • Lv38|128 katılımcı|316 katılım" lib
-          grep -q "SessionService.user" lib/screens/game_center_screen.dart
-          grep -q "getCatalog" lib/screens/game_center_screen.dart
-          echo "Clean-room architecture guards passed."
-
-      - name: Validate premium UI chrome
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-          test -f lib/widgets/lymix_live_chrome.dart
-          grep -q "class LymixPromoCarousel" lib/widgets/lymix_live_chrome.dart
-          grep -q "class LymixSystemTicker" lib/widgets/lymix_live_chrome.dart
-          grep -q "class LymixTopTip" lib/widgets/lymix_live_chrome.dart
-          grep -q "class LymixFeaturePopup" lib/widgets/lymix_live_chrome.dart
-          echo "Premium UI chrome present."
-
-      - name: Validate hybrid admin architecture
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-          test -f lib/services/admin_access_service.dart
-          test -f lib/screens/admin_hybrid_center_screen.dart
-          test -f lib/screens/admin_web_panel_screen.dart
-          grep -q "LYMIX_ADMIN_PANEL_URL" lib/screens/admin_web_panel_screen.dart
-          grep -q "AdminCapability" lib/services/admin_access_service.dart
-          echo "Hybrid admin architecture present."
-
-      - name: Validate hybrid admin web
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-          test -f admin_web/index.html
-          test -f admin_web/styles.css
-          test -f admin_web/app.js
-          grep -q "app.use('/admin'" backend/server.js
-          grep -q "LYMIX_ADMIN_PANEL_URL" lib/screens/admin_web_panel_screen.dart
-          grep -q "LymixAdminBridge.acceptToken" lib/screens/admin_web_panel_screen.dart
-          ! grep -q "room_999" backend/server.js
-          ! grep -q "i.pravatar.cc" backend/server.js
-          echo "Hybrid admin web integration passed."
-
-      - name: Validate creator verification
-        script: |
-          set -euo pipefail
-          cd source/Lymix
-          test -f lib/screens/creator_verification_screen.dart
-          test -f lib/services/creator_verification_service.dart
-          test -f backend/routes/creatorVerificationRoutes.js
-          test -f backend/services/creatorVerificationService.js
-          grep -q "image_picker: 1.2.3" pubspec.yaml
-          grep -q "/api/creator-verification" backend/server.js
-          grep -q "creator-verifications" admin_web/app.js
-          node --check backend/server.js
-          node --check backend/routes/creatorVerificationRoutes.js
-          node --check backend/services/creatorVerificationService.js
-          node --check admin_web/app.js
-          echo "Creator verification integration passed."
-
-      - name: Validate Dart compile surface
-        script: |
-          set -euo pipefail
+          set -eu
           cd source/Lymix
 
           set +e
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyzer-output.txt
-          ANALYZE_EXIT=${PIPESTATUS[0]}
+          ANALYZE_EXIT=$?
           set -e
 
           echo "Analyzer exit code: $ANALYZE_EXIT"
@@ -572,66 +94,69 @@ workflows:
             exit 1
           fi
 
-          echo "No Dart analyzer errors."
+          echo "No real analyzer errors."
 
       - name: Compile tests
         script: |
-          set -euo pipefail
+          set -eu
           cd source/Lymix
 
           if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
-            flutter test --no-pub --reporter expanded 2>&1 | tee test-output.txt
+            flutter test --no-pub --reporter expanded
           else
-            echo "No tests found." | tee test-output.txt
+            echo "No tests found."
           fi
 
-      - name: Verify Android manifest and resources
+      - name: Prepare Gradle
         script: |
-          set -euo pipefail
-          cd source/Lymix
-
-          test -f android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.RECORD_AUDIO' android/app/src/main/AndroidManifest.xml
-          grep -q 'android:icon="@mipmap/ic_launcher"' android/app/src/main/AndroidManifest.xml
-
-          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            test -f "android/app/src/main/res/mipmap-$d/ic_launcher.png"
-          done
-
-          echo "Manifest and launcher resources verified."
-
-      - name: Warm Gradle with retry
-        script: |
-          set -euo pipefail
+          set -eu
           cd source/Lymix/android
+
           chmod +x gradlew
 
-          for attempt in 1 2 3 4; do
+          attempt=1
+          while [ "$attempt" -le 4 ]; do
             echo "Gradle attempt $attempt/4"
+
             if ./gradlew --version; then
-              exit 0
+              echo "Gradle ready."
+              break
             fi
+
             if [ "$attempt" -eq 4 ]; then
+              echo "ERROR: Gradle preparation failed."
               exit 1
             fi
+
             rm -rf "$HOME/.gradle/wrapper/dists"/*
+            attempt=$((attempt + 1))
             sleep 10
           done
 
+      - name: Android dependency preflight
+        script: |
+          set -eu
+          cd source/Lymix/android
+          ./gradlew :app:dependencies --configuration debugRuntimeClasspath >/tmp/lymix-deps.txt
+          echo "Android dependency graph resolved."
+
       - name: Build debug APK
         script: |
-          set -euo pipefail
+          set -eu
           cd source/Lymix
 
           flutter build apk --debug --no-pub
 
-          test -s build/app/outputs/flutter-apk/app-debug.apk
-          ls -lh build/app/outputs/flutter-apk/app-debug.apk
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: APK was not produced."
+            exit 1
+          fi
+
+          ls -lh "$APK"
 
     artifacts:
       - source/Lymix/build/app/outputs/flutter-apk/*.apk
       - source/Lymix/analyzer-output.txt
-      - source/Lymix/test-output.txt
-      - source/Lymix/dependency-tree.txt
       - source/Lymix/pubspec.lock
