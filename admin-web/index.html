@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Lymix Baş Admin</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section id="loginView" class="login-card">
+      <div class="brand"><span class="brand-mark">L</span><div><h1>Lymix</h1><p>Baş Admin Console</p></div></div>
+      <label>API adresi<input id="apiBase" autocomplete="url" placeholder="https://api.example.com" /></label>
+      <label>Kullanıcı adı / telefon<input id="login" autocomplete="username" /></label>
+      <label>Şifre<input id="password" type="password" autocomplete="current-password" /></label>
+      <label>Cihaz anahtarı<input id="deviceKey" autocomplete="off" /></label>
+      <button id="loginButton" class="primary">Giriş Yap</button>
+      <p id="loginError" class="error"></p>
+    </section>
+
+    <section id="appView" class="app hidden">
+      <aside class="sidebar">
+        <div class="brand compact"><span class="brand-mark">L</span><div><h1>Lymix</h1><p>Baş Admin</p></div></div>
+        <nav>
+          <button data-tab="overview" class="nav active">Genel Bakış</button>
+          <button data-tab="users" class="nav">Kullanıcılar</button>
+          <button data-tab="orders" class="nav">SUD Orders</button>
+          <button data-tab="audit" class="nav">Audit Log</button>
+        </nav>
+        <button id="logoutButton" class="ghost danger">Çıkış</button>
+      </aside>
+
+      <section class="content">
+        <header><div><h2 id="pageTitle">Genel Bakış</h2><p id="statusLine">Production API</p></div><button id="refreshButton" class="ghost">Yenile</button></header>
+
+        <div id="overviewTab" class="tab">
+          <div id="metrics" class="metric-grid"></div>
+          <div class="panel"><h3>Sistem durumu</h3><pre id="healthBox">Yükleniyor…</pre></div>
+        </div>
+
+        <div id="usersTab" class="tab hidden">
+          <div class="toolbar"><input id="userSearch" placeholder="ID, telefon, kullanıcı adı…" /><button id="userSearchButton" class="primary">Ara</button></div>
+          <div class="panel table-wrap"><table><thead><tr><th>Kullanıcı</th><th>Rol</th><th>Durum</th><th>Coin</th><th>Son giriş</th><th>İşlem</th></tr></thead><tbody id="usersBody"></tbody></table></div>
+        </div>
+
+        <div id="ordersTab" class="tab hidden">
+          <div class="toolbar"><select id="orderStatus"><option value="">Tümü</option><option>CREATED</option><option>EXECUTING</option><option>EXECUTE_SUCCESS</option><option>EXECUTE_FAIL</option></select><button id="reconcileAllButton" class="primary">Bekleyenleri Uzlaştır</button></div>
+          <div class="panel table-wrap"><table><thead><tr><th>Out Order</th><th>SUD Order</th><th>Game</th><th>Room</th><th>Değer</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="ordersBody"></tbody></table></div>
+        </div>
+
+        <div id="auditTab" class="tab hidden">
+          <div class="panel table-wrap"><table><thead><tr><th>Zaman</th><th>Aksiyon</th><th>Actor</th><th>Hedef</th><th>Detay</th></tr></thead><tbody id="auditBody"></tbody></table></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="userDialog">
+    <form method="dialog" class="dialog-card">
+      <h3>Kullanıcı Yönetimi</h3><p id="selectedUser"></p>
+      <label>Durum<select id="userStatus"><option>ACTIVE</option><option>SUSPENDED</option><option>BANNED</option></select></label>
+      <label>Rol<select id="userRole"><option>USER</option><option>MODERATOR</option><option>ADMIN</option><option>SUPER_ADMIN</option></select></label>
+      <label>Coin miktarı<input id="coinAmount" type="number" min="1" step="1" /></label>
+      <label>Coin yönü<select id="coinDirection"><option>CREDIT</option><option>DEBIT</option></select></label>
+      <label>Not<input id="adminReason" maxlength="200" /></label>
+      <div class="actions"><button value="cancel" class="ghost">Kapat</button><button id="saveUserButton" value="default" type="button" class="primary">Kaydet</button></div>
+      <p id="dialogError" class="error"></p>
+    </form>
+  </dialog>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
