@@ -17,14 +17,21 @@ function publicError(error) {
     REFRESH_INVALID: 401,
     SESSION_BLOCKED: 403,
     DEVICE_BANNED: 403,
+    DEVICE_KEY_REQUIRED: 400,
     OTP_NOT_FOUND: 400,
     OTP_EXPIRED: 400,
     OTP_INVALID: 400,
+    OTP_PURPOSE_INVALID: 400,
     OTP_TOO_MANY_ATTEMPTS: 429,
+    OTP_COOLDOWN: 429,
+    USER_ALREADY_EXISTS: 409,
     INSUFFICIENT_BALANCE: 409,
     USER_NOT_FOUND: 404,
     USER_STATUS_INVALID: 400,
-    USER_ROLE_INVALID: 400
+    USER_ROLE_INVALID: 400,
+    JWT_SECRET_NOT_CONFIGURED: 503,
+    OTP_PEPPER_NOT_CONFIGURED: 503,
+    SMS_PROVIDER_NOT_CONFIGURED: 503
   }[code] || (error?.name === 'ZodError' ? 400 : 500);
   return { status, body: { code, message: status >= 500 ? 'İşlem tamamlanamadı.' : code } };
 }
