@@ -7,6 +7,8 @@ const { requestOtp, register, passwordLogin, refreshSession, revokeSession, revo
 const { sendOtp } = require('./otp_provider');
 const { getProfile, updateProfile } = require('./profile_service');
 const { getWallet, listLedger, postLedgerEntry } = require('./ledger_service');
+const { recordRoomGameSession, closeRoomGameSession } = require('./sud_settlement_service');
+const { getMetrics, listUsers, setUserStatus, setUserRole, setDeviceBan, listAudit } = require('./admin_service');
 
 function publicError(error) {
   const code = String(error?.message || 'UNKNOWN_ERROR');
@@ -20,7 +22,9 @@ function publicError(error) {
     OTP_INVALID: 400,
     OTP_TOO_MANY_ATTEMPTS: 429,
     INSUFFICIENT_BALANCE: 409,
-    USER_NOT_FOUND: 404
+    USER_NOT_FOUND: 404,
+    USER_STATUS_INVALID: 400,
+    USER_ROLE_INVALID: 400
   }[code] || (error?.name === 'ZodError' ? 400 : 500);
   return { status, body: { code, message: status >= 500 ? 'İşlem tamamlanamadı.' : code } };
 }
@@ -38,6 +42,11 @@ function createAuthMiddleware() {
       res.status(401).json({ code: 'UNAUTHORIZED', message: 'Yetkisiz.' });
     }
   };
+}
+
+function requireSuperAdmin(req, res, next) {
+  if (req.auth?.role !== 'SUPER_ADMIN') return res.status(403).json({ code: 'SUPER_ADMIN_REQUIRED' });
+  next();
 }
 
 function createProductionCoreRouter() {
@@ -108,12 +117,8 @@ function createProductionCoreRouter() {
   });
 
   router.post('/auth/refresh', loginLimiter, async (req, res) => {
-    try {
-      return res.json(await refreshSession(String(req.body?.refreshToken || '')));
-    } catch (error) {
-      const out = publicError(error);
-      return res.status(out.status).json(out.body);
-    }
+    try { return res.json(await refreshSession(String(req.body?.refreshToken || ''))); }
+    catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
   });
 
   router.post('/auth/logout', requireAuth, async (req, res) => {
@@ -144,8 +149,40 @@ function createProductionCoreRouter() {
   router.get('/wallet', requireAuth, async (req, res) => res.json(await getWallet(String(req.auth.sub))));
   router.get('/wallet/ledger', requireAuth, async (req, res) => res.json(await listLedger(String(req.auth.sub), { take: req.query.take, cursor: req.query.cursor })));
 
-  router.post('/admin/wallet/adjust', requireAuth, async (req, res) => {
-    if (req.auth.role !== 'SUPER_ADMIN') return res.status(403).json({ code: 'SUPER_ADMIN_REQUIRED' });
+  router.post('/games/sud/session/join', requireAuth, async (req, res) => {
+    try {
+      const row = await recordRoomGameSession({ userId: req.auth.sub, roomId: req.body?.roomId, mgId: req.body?.mgId, gameRoundId: req.body?.gameRoundId, metadata: req.body?.metadata });
+      return res.status(201).json(row);
+    } catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
+  });
+
+  router.post('/games/sud/session/leave', requireAuth, async (req, res) => {
+    try {
+      const row = await closeRoomGameSession({ userId: req.auth.sub, roomId: req.body?.roomId, mgId: req.body?.mgId });
+      return res.json({ ok: true, session: row });
+    } catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
+  });
+
+  router.get('/admin/metrics', requireAuth, requireSuperAdmin, async (_req, res) => res.json(await getMetrics()));
+  router.get('/admin/users', requireAuth, requireSuperAdmin, async (req, res) => {
+    const rows = await listUsers({ take: req.query.take, cursor: req.query.cursor, q: req.query.q, status: req.query.status, role: req.query.role });
+    return res.json(rows.map((u) => ({ ...u, wallet: u.wallet ? { ...u.wallet, balance: u.wallet.balance.toString() } : null })));
+  });
+  router.patch('/admin/users/:userId/status', requireAuth, requireSuperAdmin, async (req, res) => {
+    try { return res.json(await setUserStatus({ actorId: req.auth.sub, userId: req.params.userId, status: req.body?.status, reason: req.body?.reason })); }
+    catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
+  });
+  router.patch('/admin/users/:userId/role', requireAuth, requireSuperAdmin, async (req, res) => {
+    try { return res.json(await setUserRole({ actorId: req.auth.sub, userId: req.params.userId, role: req.body?.role })); }
+    catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
+  });
+  router.patch('/admin/devices/:deviceId/ban', requireAuth, requireSuperAdmin, async (req, res) => {
+    try { return res.json(await setDeviceBan({ actorId: req.auth.sub, deviceId: req.params.deviceId, banned: req.body?.banned !== false, reason: req.body?.reason })); }
+    catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
+  });
+  router.get('/admin/audit', requireAuth, requireSuperAdmin, async (req, res) => res.json(await listAudit({ take: req.query.take, cursor: req.query.cursor, action: req.query.action })));
+
+  router.post('/admin/wallet/adjust', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const result = await postLedgerEntry({
         userId: String(req.body?.userId || ''),
