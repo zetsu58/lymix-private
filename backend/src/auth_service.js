@@ -54,10 +54,11 @@ async function requestOtp({ phoneE164, purpose }) {
   const phone = phoneSchema.parse(phoneE164);
   const normalizedPurpose = normalizePurpose(purpose);
   const code = generateOtp();
-  const user = await prisma.user.findUnique({ where: { phoneE164: phone }, select: { id: true } });
+  const user = await prisma.user.findUnique({ where: { phoneE164: phone }, select: { id: true, status: true } });
 
   if (normalizedPurpose === 'REGISTER' && user) throw new Error('USER_ALREADY_EXISTS');
   if (normalizedPurpose !== 'REGISTER' && !user && normalizedPurpose !== 'PHONE_VERIFY') throw new Error('USER_NOT_FOUND');
+  if (user && user.status !== 'ACTIVE') throw new Error('USER_NOT_ACTIVE');
 
   const recent = await prisma.otpChallenge.findFirst({
     where: { phoneE164: phone, purpose: normalizedPurpose, consumedAt: null, createdAt: { gte: new Date(Date.now() - 60_000) } },
@@ -106,11 +107,10 @@ async function register({ phoneE164, username, password, displayName, device }) 
   const phone = phoneSchema.parse(phoneE164);
   const uname = usernameSchema.parse(username).toLowerCase();
   const pass = passwordSchema.parse(password);
-
   const existing = await prisma.user.findFirst({ where: { OR: [{ phoneE164: phone }, { username: uname }] }, select: { id: true } });
   if (existing) throw new Error('USER_ALREADY_EXISTS');
 
-  await verifyOtp({ phoneE164: phone, purpose: 'REGISTER', code: device.otpCode });
+  await verifyOtp({ phoneE164: phone, purpose: 'REGISTER', code: device?.otpCode });
   const passwordHash = await bcrypt.hash(pass, 12);
 
   let user;
@@ -130,7 +130,6 @@ async function register({ phoneE164, username, password, displayName, device }) 
     if (error?.code === 'P2002') throw new Error('USER_ALREADY_EXISTS');
     throw error;
   }
-
   return issueSession({ user, device });
 }
 
@@ -144,6 +143,49 @@ async function passwordLogin({ login, password, device }) {
   if (!(await bcrypt.compare(String(password || ''), user.passwordHash))) throw new Error('INVALID_CREDENTIALS');
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   return issueSession({ user, device });
+}
+
+async function otpLogin({ phoneE164, code, device }) {
+  const phone = phoneSchema.parse(phoneE164);
+  await verifyOtp({ phoneE164: phone, purpose: 'LOGIN', code });
+  const user = await prisma.user.findUnique({ where: { phoneE164: phone }, include: { profile: true } });
+  if (!user || user.status !== 'ACTIVE') throw new Error('USER_NOT_ACTIVE');
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+  return issueSession({ user, device });
+}
+
+async function resetPassword({ phoneE164, code, newPassword }) {
+  const phone = phoneSchema.parse(phoneE164);
+  const pass = passwordSchema.parse(newPassword);
+  await verifyOtp({ phoneE164: phone, purpose: 'PASSWORD_RESET', code });
+  const user = await prisma.user.findUnique({ where: { phoneE164: phone } });
+  if (!user || user.status !== 'ACTIVE') throw new Error('USER_NOT_ACTIVE');
+  const passwordHash = await bcrypt.hash(pass, 12);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
+    prisma.session.updateMany({
+      where: { userId: user.id, status: 'ACTIVE' },
+      data: { status: 'REVOKED', revokedAt: new Date(), revokeReason: 'password_reset' }
+    })
+  ]);
+  return { ok: true };
+}
+
+async function changePassword({ userId, currentPassword, newPassword, keepSessionId }) {
+  const pass = passwordSchema.parse(newPassword);
+  const user = await prisma.user.findUnique({ where: { id: String(userId) } });
+  if (!user || !user.passwordHash || user.status !== 'ACTIVE') throw new Error('USER_NOT_ACTIVE');
+  if (!(await bcrypt.compare(String(currentPassword || ''), user.passwordHash))) throw new Error('INVALID_CREDENTIALS');
+  if (await bcrypt.compare(pass, user.passwordHash)) throw new Error('PASSWORD_REUSE_NOT_ALLOWED');
+  const passwordHash = await bcrypt.hash(pass, 12);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
+    prisma.session.updateMany({
+      where: { userId: user.id, status: 'ACTIVE', ...(keepSessionId ? { id: { not: String(keepSessionId) } } : {}) },
+      data: { status: 'REVOKED', revokedAt: new Date(), revokeReason: 'password_changed' }
+    })
+  ]);
+  return { ok: true };
 }
 
 async function issueSession({ user, device }) {
@@ -180,13 +222,7 @@ async function issueSession({ user, device }) {
       expiresAt: new Date(Date.now() + REFRESH_DAYS * 86400000)
     }
   });
-
-  return {
-    accessToken: signAccessToken(user, session.id),
-    refreshToken,
-    sessionId: session.id,
-    user: sanitizeUser(user)
-  };
+  return { accessToken: signAccessToken(user, session.id), refreshToken, sessionId: session.id, user: sanitizeUser(user) };
 }
 
 async function refreshSession(refreshToken) {
@@ -203,41 +239,52 @@ async function refreshSession(refreshToken) {
     where: { id: session.id },
     data: { refreshTokenHash: sha256(nextRefresh), lastUsedAt: new Date() }
   });
-  return {
-    accessToken: signAccessToken(session.user, updated.id),
-    refreshToken: nextRefresh,
-    sessionId: updated.id,
-    user: sanitizeUser(session.user)
-  };
+  return { accessToken: signAccessToken(session.user, updated.id), refreshToken: nextRefresh, sessionId: updated.id, user: sanitizeUser(session.user) };
 }
 
 async function revokeSession({ sessionId, userId, reason = 'logout' }) {
   await prisma.session.updateMany({
-    where: { id: sessionId, userId, status: 'ACTIVE' },
+    where: { id: String(sessionId), userId: String(userId), status: 'ACTIVE' },
     data: { status: 'REVOKED', revokedAt: new Date(), revokeReason: reason }
   });
 }
 
 async function revokeAllSessions(userId, exceptSessionId) {
   await prisma.session.updateMany({
-    where: { userId, status: 'ACTIVE', ...(exceptSessionId ? { id: { not: exceptSessionId } } : {}) },
+    where: { userId: String(userId), status: 'ACTIVE', ...(exceptSessionId ? { id: { not: String(exceptSessionId) } } : {}) },
     data: { status: 'REVOKED', revokedAt: new Date(), revokeReason: 'revoke_all' }
   });
 }
 
+async function listSessions(userId) {
+  const rows = await prisma.session.findMany({
+    where: { userId: String(userId) },
+    include: { device: true },
+    orderBy: { lastUsedAt: 'desc' },
+    take: 100
+  });
+  return rows.map((s) => ({
+    id: s.id,
+    status: s.status,
+    expiresAt: s.expiresAt,
+    lastUsedAt: s.lastUsedAt,
+    createdAt: s.createdAt,
+    device: { id: s.device.id, deviceKey: s.device.deviceKey, platform: s.device.platform, deviceName: s.device.deviceName, appVersion: s.device.appVersion, trusted: s.device.trusted, banned: s.device.banned }
+  }));
+}
+
 async function listDevices(userId) {
-  return prisma.device.findMany({ where: { userId }, orderBy: { lastSeenAt: 'desc' } });
+  return prisma.device.findMany({ where: { userId: String(userId) }, orderBy: { lastSeenAt: 'desc' } });
+}
+
+async function setOwnDeviceTrusted({ userId, deviceId, trusted }) {
+  const result = await prisma.device.updateMany({ where: { id: String(deviceId), userId: String(userId), banned: false }, data: { trusted: Boolean(trusted) } });
+  if (result.count !== 1) throw new Error('DEVICE_NOT_FOUND');
+  return { ok: true, trusted: Boolean(trusted) };
 }
 
 function sanitizeUser(user) {
-  return {
-    id: user.id,
-    phoneE164: user.phoneE164,
-    username: user.username,
-    role: user.role,
-    status: user.status,
-    profile: user.profile || null
-  };
+  return { id: user.id, phoneE164: user.phoneE164, username: user.username, role: user.role, status: user.status, profile: user.profile || null };
 }
 
 module.exports = {
@@ -245,10 +292,15 @@ module.exports = {
   verifyOtp,
   register,
   passwordLogin,
+  otpLogin,
+  resetPassword,
+  changePassword,
   refreshSession,
   revokeSession,
   revokeAllSessions,
+  listSessions,
   listDevices,
+  setOwnDeviceTrusted,
   sanitizeUser,
   sha256
 };
