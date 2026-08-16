@@ -1,11 +1,11 @@
 {
   "name": "lymix-backend",
-  "version": "8.17.0",
+  "version": "8.17.1",
   "private": true,
   "type": "commonjs",
-  "main": "bootstrap.js",
+  "main": "admin_bootstrap.js",
   "scripts": {
-    "start": "node bootstrap.js",
+    "start": "node admin_bootstrap.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
