@@ -9,7 +9,8 @@
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "admin:seed": "node scripts/seed_super_admin.js"
   },
   "engines": {"node": ">=20"},
   "dependencies": {
