@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { createProductionCoreRouter } = require('./src/production_core_router');
+const { createExtendedAuthRouter } = require('./src/auth_extended_router');
 const { getProfile, getSudUserInfo } = require('./src/profile_service');
 const { getSudAccount, applySudScoreUpdate, safeScore } = require('./src/sud_settlement_service');
 const { SudAuthAdapter } = require('./sud_auth_adapter');
@@ -98,8 +99,6 @@ async function realUpdateScore(req, res) {
   }
 }
 
-// Replace only the final business handler. Existing callback-signature middleware
-// registered by server.js remains in front of these handlers.
 const originalPost = express.application.post;
 express.application.post = function lymixProductionPost(path, ...handlers) {
   const replacements = {
@@ -115,12 +114,12 @@ express.application.post = function lymixProductionPost(path, ...handlers) {
   return originalPost.call(this, path, ...handlers);
 };
 
-// Mount the new production REST API on the same Express application before listen.
 const originalListen = express.application.listen;
 let mounted = false;
 express.application.listen = function lymixProductionListen(...args) {
   if (!mounted) {
     this.use('/api/v1', createProductionCoreRouter());
+    this.use('/api/v1', createExtendedAuthRouter());
     mounted = true;
   }
   return originalListen.apply(this, args);
