@@ -75,6 +75,19 @@ class SudAuthAdapter {
     return Math.max(Math.trunc(requested), MIN_TOKEN_TTL_MS);
   }
 
+  normalizeUidResult(result) {
+    const raw = result && typeof result === 'object' ? result : {};
+    const errorCode = Number(raw.errorCode ?? raw.sdkErrorCode ?? raw.sdk_error_code ?? (raw.isSuccess ? 0 : 1004));
+    return {
+      ...raw,
+      uid: String(raw.uid || ''),
+      isSuccess: Boolean(raw.isSuccess),
+      errorCode,
+      sdkErrorCode: errorCode,
+      sdk_error_code: errorCode
+    };
+  }
+
   getCode(uid, expireDurationMs = 0) {
     this.assertSdk();
     return this.sdk.getCode(this.normalizeUid(uid), this.normalizeTtl(expireDurationMs));
@@ -83,8 +96,8 @@ class SudAuthAdapter {
   getUidByCode(code) {
     this.assertSdk();
     const value = String(code || '');
-    if (!value) return { uid: '', isSuccess: false, errorCode: 1004 };
-    return this.sdk.getUidByCode(value);
+    if (!value) return this.normalizeUidResult({ uid: '', isSuccess: false, errorCode: 1004 });
+    return this.normalizeUidResult(this.sdk.getUidByCode(value));
   }
 
   getSSToken(uid, expireDurationMs = 0) {
@@ -95,8 +108,8 @@ class SudAuthAdapter {
   getUidBySSToken(ssToken) {
     this.assertSdk();
     const value = String(ssToken || '');
-    if (!value) return { uid: '', isSuccess: false, errorCode: 1004 };
-    return this.sdk.getUidBySSToken(value);
+    if (!value) return this.normalizeUidResult({ uid: '', isSuccess: false, errorCode: 1004 });
+    return this.normalizeUidResult(this.sdk.getUidBySSToken(value));
   }
 
   verifyCode(code) {
