@@ -121,13 +121,23 @@ class SudServerApi {
     return this.post('query_game_report_info', body);
   }
 
-  async getRoomReports({ roomId, pageNo = 0, pageSize = 5 } = {}) {
+  getRoomReports({ roomId, pageNo = 0, pageSize = 5 } = {}) {
     if (!roomId) throw new Error('roomId is required');
     const size = Math.min(Math.max(Number(pageSize || 5), 1), 10);
     return this.post('get_game_report_info_page', {
       app_id: this.appId,
       app_secret: this.appSecret,
       room_id: String(roomId),
+      page_no: Math.max(Number(pageNo || 0), 0),
+      page_size: size
+    });
+  }
+
+  getPlayerResults({ gameRoundId, pageNo = 0, pageSize = 10 } = {}) {
+    if (!gameRoundId) throw new Error('gameRoundId is required');
+    const size = Math.min(Math.max(Number(pageSize || 10), 1), 100);
+    return this.post('get_player_results', {
+      game_round_id: String(gameRoundId),
       page_no: Math.max(Number(pageNo || 0), 0),
       page_size: size
     });
