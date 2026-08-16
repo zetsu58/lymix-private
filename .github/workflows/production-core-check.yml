@@ -1,0 +1,56 @@
+name: Lymix Production Core Check
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/production-core-check.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lymix
+          POSTGRES_PASSWORD: lymix_test
+          POSTGRES_DB: lymix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lymix -d lymix_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://lymix:lymix_test@localhost:5432/lymix_test?schema=public
+      JWT_SECRET: ci-only-long-random-secret-please-never-use-production
+      OTP_PEPPER: ci-only-otp-pepper-never-use-production
+      ALLOW_DEV_OTP: 'true'
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm install
+      - run: npx prisma validate
+      - run: npx prisma generate
+      - run: npx prisma db push
+      - name: Node syntax check
+        run: |
+          node --check bootstrap.js
+          node --check server.js
+          node --check sud_auth_adapter.js
+          node --check sud_server_api.js
+          find src -name '*.js' -print0 | xargs -0 -n1 node --check
