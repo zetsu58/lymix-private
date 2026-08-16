@@ -168,10 +168,9 @@ app.post('/api/games/sud/get-code', requireLymixAuth, (req, res) => {
   }
 });
 
-// Backward-compatible alias used by the first Lymix SUD gateway implementation.
-app.post('/api/games/sud/session', requireLymixAuth, (req, res, next) => {
-  req.url = '/get-code';
-  return next();
+// Backward-compatible alias. HTTP 307 preserves POST method/body and Authorization header.
+app.post('/api/games/sud/session', requireLymixAuth, (req, res) => {
+  return res.redirect(307, '/api/games/sud/get-code');
 });
 
 // SUD game server -> Lymix server callback: exchange short code for SSToken.
