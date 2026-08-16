@@ -3,9 +3,10 @@
   "version": "8.17.0",
   "private": true,
   "type": "commonjs",
-  "main": "server.js",
+  "main": "bootstrap.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node bootstrap.js",
+    "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:validate": "prisma validate"
