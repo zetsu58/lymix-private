@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  DELETED
+}
+
+enum OtpPurpose {
+  REGISTER
+  LOGIN
+  PASSWORD_RESET
+  PHONE_VERIFY
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum LedgerDirection {
+  CREDIT
+  DEBIT
+}
+
+enum LedgerStatus {
+  PENDING
+  POSTED
+  REVERSED
+  FAILED
+}
+
+enum GameOrderStatus {
+  CREATED
+  EXECUTING
+  EXECUTE_SUCCESS
+  EXECUTE_FAIL
+  CANCELLED
+}
+
+model User {
+  id              String      @id @default(cuid())
+  phoneE164       String      @unique
+  username        String?     @unique
+  passwordHash    String?
+  role            UserRole    @default(USER)
+  status          UserStatus  @default(ACTIVE)
+  phoneVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  profile         Profile?
+  devices         Device[]
+  sessions        Session[]
+  otpChallenges   OtpChallenge[]
+  wallet          Wallet?
+  ledgerEntries   LedgerEntry[]
+  gameOrders      GameOrder[]
+  auditLogs       AuditLog[]
+  roomGameSessions RoomGameSession[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Profile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  displayName String
+  avatarUrl   String?
+  bio         String?  @db.VarChar(500)
+  gender      String?
+  countryCode String?  @db.VarChar(2)
+  language    String   @default("tr")
+  birthDate   DateTime?
+  vipLevel    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Device {
+  id           String   @id @default(cuid())
+  userId       String
+  deviceKey    String
+  platform     String
+  deviceName   String?
+  appVersion   String?
+  pushToken    String?
+  ipHash       String?
+  userAgent    String?
+  trusted      Boolean  @default(false)
+  banned       Boolean  @default(false)
+  firstSeenAt  DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions Session[]
+
+  @@unique([userId, deviceKey])
+  @@index([deviceKey])
+  @@index([banned])
+}
+
+model Session {
+  id               String        @id @default(cuid())
+  userId           String
+  deviceId         String
+  refreshTokenHash String        @unique
+  status           SessionStatus @default(ACTIVE)
+  expiresAt        DateTime
+  lastUsedAt       DateTime      @default(now())
+  revokedAt        DateTime?
+  revokeReason     String?
+  createdAt        DateTime      @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model OtpChallenge {
+  id          String     @id @default(cuid())
+  userId      String?
+  phoneE164   String
+  purpose     OtpPurpose
+  codeHash    String
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(5)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime   @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([phoneE164, purpose, createdAt])
+  @@index([expiresAt])
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  currency  String   @default("COIN")
+  balance   BigInt   @default(0)
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries LedgerEntry[]
+}
+
+model LedgerEntry {
+  id             String          @id @default(cuid())
+  userId         String
+  walletId       String
+  idempotencyKey String          @unique
+  externalRef    String?
+  direction      LedgerDirection
+  amount         BigInt
+  balanceBefore  BigInt
+  balanceAfter   BigInt
+  status         LedgerStatus    @default(POSTED)
+  source         String
+  metadata       Json?
+  reversedEntryId String?        @unique
+  createdAt      DateTime        @default(now())
+
+  user          User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  wallet        Wallet       @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  reversedEntry LedgerEntry? @relation("LedgerReversal", fields: [reversedEntryId], references: [id])
+  reversal      LedgerEntry? @relation("LedgerReversal")
+
+  @@index([userId, createdAt])
+  @@index([externalRef])
+  @@index([source, createdAt])
+}
+
+model GameOrder {
+  id             String          @id @default(cuid())
+  userId         String
+  outOrderId     String          @unique @db.VarChar(64)
+  sudOrderId     String?         @unique
+  mgId           String
+  roomId         String
+  command        String
+  value          Int
+  status         GameOrderStatus @default(CREATED)
+  requestPayload Json?
+  responsePayload Json?
+  lastError      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, updatedAt])
+}
+
+model RoomGameSession {
+  id          String   @id @default(cuid())
+  userId      String
+  roomId      String
+  mgId        String
+  provider    String   @default("SUD")
+  gameRoundId String?
+  joinedAt    DateTime @default(now())
+  leftAt      DateTime?
+  metadata    Json?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, mgId])
+  @@index([userId, joinedAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  actorId   String?
+  action    String
+  target    String?
+  ipHash    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([actorId, createdAt])
+}
