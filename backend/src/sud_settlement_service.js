@@ -7,28 +7,36 @@ function ledgerEnabled() {
   return String(process.env.SUD_LEDGER_READY || 'false').toLowerCase() === 'true';
 }
 
+function safeScore(balance) {
+  const value = BigInt(String(balance));
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('SUD_SCORE_OUT_OF_SAFE_RANGE');
+  return Number(value);
+}
+
 async function getSudAccount(uid) {
   if (!ledgerEnabled()) throw new Error('SUD_LEDGER_NOT_READY');
   const wallet = await getWallet(String(uid));
-  return { uid: String(uid), score: Number(wallet.balance), balance: wallet.balance };
+  return { uid: String(uid), score: safeScore(wallet.balance), balance: wallet.balance };
 }
 
 async function applySudScoreUpdate(payload) {
   if (!ledgerEnabled()) throw new Error('SUD_LEDGER_NOT_READY');
-  const orderId = String(payload?.order_id || payload?.orderId || '');
-  const uid = String(payload?.uid || payload?.user_id || '');
+  const orderId = String(payload?.order_id || '');
+  const uid = String(payload?.uid || '');
+  const type = Number(payload?.type);
+  const score = BigInt(String(payload?.score ?? '0'));
   if (!orderId) throw new Error('SUD_ORDER_ID_REQUIRED');
   if (!uid) throw new Error('SUD_UID_REQUIRED');
+  if (![1, 2].includes(type)) throw new Error('SUD_SCORE_TYPE_INVALID');
+  if (score < 0n) throw new Error('SUD_SCORE_INVALID');
+  if (score === 0n) return { duplicate: false, noOp: true, wallet: await getWallet(uid) };
 
-  const rawValue = payload?.value ?? payload?.score ?? payload?.delta;
-  const delta = BigInt(String(rawValue));
-  if (delta === 0n) return { duplicate: false, noOp: true, wallet: await getWallet(uid) };
-
+  const direction = type === 1 ? 'DEBIT' : 'CREDIT';
   const result = await postLedgerEntry({
     userId: uid,
     idempotencyKey: `sud:update_score:${orderId}`,
-    direction: delta > 0n ? 'CREDIT' : 'DEBIT',
-    amount: delta > 0n ? delta : -delta,
+    direction,
+    amount: score,
     source: 'SUD_UPDATE_SCORE',
     externalRef: orderId,
     metadata: payload
@@ -40,7 +48,7 @@ async function applySudScoreUpdate(payload) {
       actorId: 'SUD',
       action: result.duplicate ? 'SUD_SCORE_DUPLICATE' : 'SUD_SCORE_APPLIED',
       target: orderId,
-      metadata: { direction: delta > 0n ? 'CREDIT' : 'DEBIT', amount: delta.toString() }
+      metadata: { direction, amount: score.toString(), mgId: payload?.mg_id || null, roundId: payload?.round_id || null }
     }
   });
 
@@ -52,16 +60,9 @@ async function upsertGameOrder({ userId, outOrderId, sudOrderId, mgId, roomId, c
   return prisma.gameOrder.upsert({
     where: { outOrderId: String(outOrderId) },
     create: {
-      userId: String(userId),
-      outOrderId: String(outOrderId),
-      sudOrderId: sudOrderId ? String(sudOrderId) : null,
-      mgId: String(mgId),
-      roomId: String(roomId),
-      command: String(command),
-      value: Number(value || 0),
-      status: status || 'CREATED',
-      requestPayload: requestPayload || undefined,
-      responsePayload: responsePayload || undefined,
+      userId: String(userId), outOrderId: String(outOrderId), sudOrderId: sudOrderId ? String(sudOrderId) : null,
+      mgId: String(mgId), roomId: String(roomId), command: String(command), value: Number(value || 0),
+      status: status || 'CREATED', requestPayload: requestPayload || undefined, responsePayload: responsePayload || undefined,
       lastError: lastError || null
     },
     update: {
@@ -88,4 +89,4 @@ async function closeRoomGameSession({ userId, roomId, mgId }) {
   return prisma.roomGameSession.update({ where: { id: active.id }, data: { leftAt: new Date() } });
 }
 
-module.exports = { ledgerEnabled, getSudAccount, applySudScoreUpdate, upsertGameOrder, recordRoomGameSession, closeRoomGameSession };
+module.exports = { ledgerEnabled, safeScore, getSudAccount, applySudScoreUpdate, upsertGameOrder, recordRoomGameSession, closeRoomGameSession };
