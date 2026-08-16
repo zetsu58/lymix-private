@@ -3,6 +3,8 @@
 const express = require('express');
 const { createProductionCoreRouter } = require('./src/production_core_router');
 const { createExtendedAuthRouter } = require('./src/auth_extended_router');
+const { createSudOrderRouter } = require('./src/sud_order_router');
+const { startOrderReconciler } = require('./src/sud_order_reconciliation');
 const { getProfile, getSudUserInfo } = require('./src/profile_service');
 const { getSudAccount, applySudScoreUpdate, safeScore } = require('./src/sud_settlement_service');
 const { SudAuthAdapter } = require('./sud_auth_adapter');
@@ -108,19 +110,23 @@ express.application.post = function lymixProductionPost(path, ...handlers) {
     '/api/games/sud/callback/get_account': realGetAccount,
     '/api/games/sud/callback/update_score': realUpdateScore
   };
-  if (typeof path === 'string' && replacements[path] && handlers.length) {
-    handlers[handlers.length - 1] = replacements[path];
-  }
+  if (typeof path === 'string' && replacements[path] && handlers.length) handlers[handlers.length - 1] = replacements[path];
   return originalPost.call(this, path, ...handlers);
 };
 
 const originalListen = express.application.listen;
 let mounted = false;
+let reconcilerStarted = false;
 express.application.listen = function lymixProductionListen(...args) {
   if (!mounted) {
     this.use('/api/v1', createProductionCoreRouter());
     this.use('/api/v1', createExtendedAuthRouter());
+    this.use('/api/v1', createSudOrderRouter());
     mounted = true;
+  }
+  if (!reconcilerStarted) {
+    startOrderReconciler();
+    reconcilerStarted = true;
   }
   return originalListen.apply(this, args);
 };
