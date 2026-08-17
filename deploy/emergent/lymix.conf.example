@@ -1,0 +1,17 @@
+[program:lymix-backend]
+command=npm run start:emergent
+directory=/app/lymix/backend
+autostart=true
+autorestart=true
+priority=300
+environment=NODE_ENV="development",PORT="3000",API_PORT="8001"
+stderr_logfile=/var/log/supervisor/lymix-backend.err.log
+stdout_logfile=/var/log/supervisor/lymix-backend.out.log
+stopsignal=TERM
+stopwaitsecs=15
+stopasgroup=true
+killasgroup=true
+
+; PostgreSQL is intentionally not embedded here. In Emergent, start the
+; available PostgreSQL service/cluster separately. In production use a
+; managed PostgreSQL service where possible.
