@@ -14,12 +14,13 @@ runpy.run_path(str(script_dir / 'apply_active_showcase_fixes.py'), run_name='__m
 sys.argv = [str(script_dir / 'apply_showcase_constructor_hotfix.py'), str(root)]
 runpy.run_path(str(script_dir / 'apply_showcase_constructor_hotfix.py'), run_name='__main__')
 
-# Align every user-facing account/wallet/session link with the production /api/v1 contract.
 sys.argv = [str(script_dir / 'apply_api_contract_fixes.py'), str(root)]
 runpy.run_path(str(script_dir / 'apply_api_contract_fixes.py'), run_name='__main__')
 
-# Apply interaction patterns observed in the supplied reference video without copying its assets/branding.
 sys.argv = [str(script_dir / 'apply_reference_video_ux_fixes.py'), str(root)]
 runpy.run_path(str(script_dir / 'apply_reference_video_ux_fixes.py'), run_name='__main__')
 
-print('FULL_MOBILE_AUDIT_ACTIVE_SHOWCASE_API_AND_REFERENCE_UX_APPLIED')
+sys.argv = [str(script_dir / 'apply_pc_handoff_final_fixes.py'), str(root)]
+runpy.run_path(str(script_dir / 'apply_pc_handoff_final_fixes.py'), run_name='__main__')
+
+print('FULL_MOBILE_AUDIT_REFERENCE_UX_AND_PC_HANDOFF_APPLIED')
