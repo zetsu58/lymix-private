@@ -15,6 +15,7 @@ function publicError(error) {
   const status = {
     INVALID_CREDENTIALS: 401,
     REFRESH_INVALID: 401,
+    REFRESH_REPLAY_DETECTED: 401,
     SESSION_BLOCKED: 403,
     DEVICE_BANNED: 403,
     DEVICE_KEY_REQUIRED: 400,
