@@ -63,4 +63,4 @@ function createAgoraRouter() {
   return router;
 }
 
-module.exports = { createAgoraRouter };
+module.exports = { createAgoraRouter, cleanRoomId };
