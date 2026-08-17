@@ -214,32 +214,84 @@ async function issueSession({ user, device }) {
   if (dbDevice.banned) throw new Error('DEVICE_BANNED');
 
   const refreshToken = randomToken();
-  const session = await prisma.session.create({
-    data: {
-      userId: user.id,
-      deviceId: dbDevice.id,
-      refreshTokenHash: sha256(refreshToken),
-      expiresAt: new Date(Date.now() + REFRESH_DAYS * 86400000)
-    }
+  const refreshTokenHash = sha256(refreshToken);
+  const expiresAt = new Date(Date.now() + REFRESH_DAYS * 86400000);
+  const session = await prisma.$transaction(async (tx) => {
+    const created = await tx.session.create({
+      data: {
+        userId: user.id,
+        deviceId: dbDevice.id,
+        refreshTokenHash,
+        expiresAt
+      }
+    });
+    await tx.refreshToken.create({
+      data: {
+        sessionId: created.id,
+        tokenHash: refreshTokenHash,
+        expiresAt
+      }
+    });
+    return created;
   });
+
   return { accessToken: signAccessToken(user, session.id), refreshToken, sessionId: session.id, user: sanitizeUser(user) };
 }
 
 async function refreshSession(refreshToken) {
   const tokenHash = sha256(refreshToken || '');
-  const session = await prisma.session.findUnique({
-    where: { refreshTokenHash: tokenHash },
-    include: { user: { include: { profile: true } }, device: true }
+  const tokenRecord = await prisma.refreshToken.findUnique({
+    where: { tokenHash },
+    include: {
+      session: {
+        include: { user: { include: { profile: true } }, device: true }
+      }
+    }
   });
-  if (!session || session.status !== 'ACTIVE' || session.expiresAt.getTime() < Date.now()) throw new Error('REFRESH_INVALID');
+  if (!tokenRecord) throw new Error('REFRESH_INVALID');
+
+  const session = tokenRecord.session;
+  if (session.status !== 'ACTIVE' || session.expiresAt.getTime() < Date.now()) throw new Error('REFRESH_INVALID');
   if (session.device.banned || session.user.status !== 'ACTIVE') throw new Error('SESSION_BLOCKED');
 
   const nextRefresh = randomToken();
-  const updated = await prisma.session.update({
-    where: { id: session.id },
-    data: { refreshTokenHash: sha256(nextRefresh), lastUsedAt: new Date() }
+  const nextHash = sha256(nextRefresh);
+  const now = new Date();
+  const rotation = await prisma.$transaction(async (tx) => {
+    const consumed = await tx.refreshToken.updateMany({
+      where: { id: tokenRecord.id, consumedAt: null, expiresAt: { gt: now } },
+      data: { consumedAt: now }
+    });
+
+    if (consumed.count !== 1) {
+      await tx.session.updateMany({
+        where: { id: session.id, status: 'ACTIVE' },
+        data: { status: 'REVOKED', revokedAt: now, revokeReason: 'refresh_replay_detected' }
+      });
+      return { replay: true };
+    }
+
+    const updated = await tx.session.update({
+      where: { id: session.id },
+      data: { refreshTokenHash: nextHash, lastUsedAt: now }
+    });
+    await tx.refreshToken.create({
+      data: {
+        sessionId: session.id,
+        tokenHash: nextHash,
+        expiresAt: session.expiresAt
+      }
+    });
+    return { replay: false, updated };
   });
-  return { accessToken: signAccessToken(session.user, updated.id), refreshToken: nextRefresh, sessionId: updated.id, user: sanitizeUser(session.user) };
+
+  if (rotation.replay) throw new Error('REFRESH_REPLAY_DETECTED');
+  return {
+    accessToken: signAccessToken(session.user, rotation.updated.id),
+    refreshToken: nextRefresh,
+    sessionId: rotation.updated.id,
+    user: sanitizeUser(session.user)
+  };
 }
 
 async function revokeSession({ sessionId, userId, reason = 'logout' }) {
