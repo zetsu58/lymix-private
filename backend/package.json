@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node admin_bootstrap.js",
     "start:emergent": "node start_emergent.js",
+    "start:checked": "npm run runtime:validate && node admin_bootstrap.js",
+    "runtime:validate": "node scripts/validate_runtime_env.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
