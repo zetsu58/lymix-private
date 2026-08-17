@@ -73,6 +73,7 @@ workflows:
           flutter --version
           dart --version
           java -version
+          flutter doctor -v
 
       - name: Generate Android scaffold for pinned Flutter
         script: |
@@ -141,9 +142,52 @@ workflows:
         script: |
           set -euo pipefail
           cd source/Lymix
+          grep -E '^  agora_rtc_engine: 6\.5\.4$' pubspec.yaml
           flutter pub get
           test -f pubspec.lock
           flutter pub deps --style=compact > dependency-tree.txt
+
+      - name: Normalize Android plugin compileSdk values
+        script: |
+          set -euo pipefail
+          cd source/Lymix
+          PUB_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
+          python3 - "$PUB_ROOT" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          pub_root = Path(sys.argv[1])
+
+          def patch(path: Path):
+              try:
+                  text = path.read_text()
+              except Exception:
+                  return
+              original = text
+              text = re.sub(r'compileSdkVersion\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion = 36', text)
+              text = re.sub(r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion 36', text)
+              text = re.sub(r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdk = 36', text)
+              text = re.sub(r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdk 36', text)
+              if text != original:
+                  path.write_text(text)
+                  print(f'patched compileSdk=36: {path}')
+
+          for hosted in (pub_root / 'hosted').glob('*'):
+              if not hosted.is_dir():
+                  continue
+              for package in hosted.iterdir():
+                  android = package / 'android'
+                  if not android.is_dir():
+                      continue
+                  for name in ('build.gradle', 'build.gradle.kts'):
+                      p = android / name
+                      if p.exists():
+                          patch(p)
+          PY
+
+          echo '=== Agora compileSdk after patch ==='
+          find "$PUB_ROOT/hosted" -path '*agora_rtc_engine*/android/build.gradle*' -type f -print -exec grep -nE 'compileSdk|compileSdkVersion' {} \; || true
 
       - name: Validate product integrity
         script: |
@@ -203,6 +247,7 @@ workflows:
           p.write_text(s)
           PY
           fi
+          grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml
 
       - name: Android Gradle preflight
         script: |
@@ -211,6 +256,23 @@ workflows:
           chmod +x gradlew
           ./gradlew :app:checkDebugAarMetadata --stacktrace
           ./gradlew :app:processDebugMainManifest --stacktrace
+
+      - name: Warm Gradle with retry
+        script: |
+          set -euo pipefail
+          cd source/Lymix/android
+          chmod +x gradlew
+          for attempt in 1 2 3 4; do
+            echo "Gradle attempt $attempt/4"
+            if ./gradlew --version; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              exit 1
+            fi
+            rm -rf "$HOME/.gradle/wrapper/dists"/*
+            sleep 10
+          done
 
       - name: Build debug APK
         script: |
