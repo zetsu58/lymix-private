@@ -18,4 +18,8 @@ runpy.run_path(str(script_dir / 'apply_showcase_constructor_hotfix.py'), run_nam
 sys.argv = [str(script_dir / 'apply_api_contract_fixes.py'), str(root)]
 runpy.run_path(str(script_dir / 'apply_api_contract_fixes.py'), run_name='__main__')
 
-print('FULL_MOBILE_AUDIT_ACTIVE_SHOWCASE_AND_API_CONTRACT_APPLIED')
+# Apply interaction patterns observed in the supplied reference video without copying its assets/branding.
+sys.argv = [str(script_dir / 'apply_reference_video_ux_fixes.py'), str(root)]
+runpy.run_path(str(script_dir / 'apply_reference_video_ux_fixes.py'), run_name='__main__')
+
+print('FULL_MOBILE_AUDIT_ACTIVE_SHOWCASE_API_AND_REFERENCE_UX_APPLIED')
