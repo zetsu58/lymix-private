@@ -55,7 +55,21 @@ workflows:
           echo "Detected Lymix version: $FOUND_VERSION"
           test "$FOUND_VERSION" = "21.22.0+237"
 
-      - name: Export original Flutter source snapshot
+      - name: Apply full mobile audit fixes
+        script: |
+          set -euo pipefail
+          python3 scripts/apply_full_mobile_audit_fixes.py source/Lymix
+          test -f source/Lymix/lib/screens/room_screen.dart
+          test -f source/Lymix/lib/screens/home_screen.dart
+          test -f source/Lymix/lib/screens/game_center_screen.dart
+          if grep -R -nE "on(Tap|Pressed):[[:space:]]*\(\)[[:space:]]*\{[[:space:]]*\}" source/Lymix/lib; then
+            echo 'Dead empty UI callback detected after audit patch.'
+            exit 1
+          fi
+          grep -n "onTap: () => _seatTap(i)" source/Lymix/lib/screens/room_screen.dart
+          grep -n "onLongPress:" source/Lymix/lib/screens/room_screen.dart | head -n 5
+
+      - name: Export patched Flutter source snapshot
         script: |
           set -euo pipefail
           cd source/Lymix
@@ -201,7 +215,6 @@ workflows:
               if bad:
                   raise SystemExit(f'Agora compileSdk 31 still present in {path}: {bad}')
 
-          # Normalize every cached Android Flutter plugin as well.
           for path in root.rglob('build.gradle*'):
               normalized = str(path).replace('\\', '/')
               if '/android/' not in normalized:
