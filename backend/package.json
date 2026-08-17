@@ -6,6 +6,7 @@
   "main": "admin_bootstrap.js",
   "scripts": {
     "start": "node admin_bootstrap.js",
+    "start:emergent": "node start_emergent.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
