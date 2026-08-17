@@ -7,6 +7,10 @@
   "scripts": {
     "start": "node admin_bootstrap.js",
     "start:emergent": "node start_emergent.js",
+    "start:checked": "npm run runtime:validate && node admin_bootstrap.js",
+    "runtime:validate": "node scripts/validate_runtime_env.js",
+    "test:unit": "node --test test/*.test.js",
+    "smoke:http": "node scripts/smoke_http.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
@@ -16,6 +20,7 @@
   "engines": {"node": ">=20"},
   "dependencies": {
     "@prisma/client": "^6.14.0",
+    "agora-token": "2.0.5",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "express": "^4.21.2",

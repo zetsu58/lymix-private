@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lymix
+      POSTGRES_USER: lymix
+      POSTGRES_PASSWORD: lymix_local_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - lymix_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lymix -d lymix"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://lymix:lymix_local_only@postgres:5432/lymix?schema=public
+      JWT_SECRET: local_dev_jwt_secret_not_for_production_1234567890
+      ACCESS_TOKEN_TTL: 15m
+      REFRESH_TOKEN_DAYS: 30
+      OTP_PEPPER: local_dev_otp_pepper_not_for_production_1234
+      OTP_TTL_MINUTES: 5
+      OTP_MAX_ATTEMPTS: 5
+      ALLOW_DEV_OTP: "true"
+      SMS_WEBHOOK_URL: ""
+      SMS_WEBHOOK_TOKEN: ""
+      LYMIX_MAINTENANCE_MODE: "false"
+      LYMIX_MIN_ANDROID_VERSION: 21.22.0
+      LYMIX_LATEST_ANDROID_VERSION: 21.22.0
+      LYMIX_MIN_IOS_VERSION: 21.22.0
+      LYMIX_LATEST_IOS_VERSION: 21.22.0
+      AGORA_APP_ID: ${AGORA_APP_ID:-}
+      AGORA_APP_CERTIFICATE: ${AGORA_APP_CERTIFICATE:-}
+      AGORA_TOKEN_TTL_SECONDS: 3600
+      SUD_APP_ID: ${SUD_APP_ID:-}
+      SUD_APP_KEY: ${SUD_APP_KEY:-}
+      SUD_APP_SECRET: ${SUD_APP_SECRET:-}
+      SUD_IS_TEST_ENV: "true"
+      SUD_VERIFY_CALLBACK_SIGNATURES: "true"
+      SUD_LEDGER_READY: "false"
+      SUD_ENABLE_ORDER_API: "false"
+      SUD_ENABLE_BATCH_ORDER_API: "false"
+      SUD_ENABLE_ROUND_BILL_API: "false"
+      SUD_ENABLE_ENTRY_SCORE_API: "false"
+      SUD_ENABLE_CROSS_APP_API: "false"
+      SUD_ENABLE_MATCHING_API: "false"
+      SUD_ENABLE_BULLET_API: "false"
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  lymix_pgdata:

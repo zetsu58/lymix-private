@@ -1,0 +1,15 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /app/backend
+
+COPY backend/package.json ./package.json
+RUN npm install --no-audit --no-fund
+
+COPY backend/ ./
+COPY admin-web/ /app/admin-web/
+
+RUN npx prisma generate
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "npx prisma migrate deploy && node admin_bootstrap.js"]
