@@ -9,6 +9,7 @@
     "start:emergent": "node start_emergent.js",
     "start:checked": "npm run runtime:validate && node admin_bootstrap.js",
     "runtime:validate": "node scripts/validate_runtime_env.js",
+    "smoke:http": "node scripts/smoke_http.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
