@@ -29,6 +29,7 @@ function publicMobileConfig() {
       sessions: true,
       accountExport: true,
       accountDelete: true,
+      agoraVoice: Boolean(process.env.AGORA_APP_ID && process.env.AGORA_APP_CERTIFICATE),
       sudGames: Boolean(process.env.SUD_APP_ID && process.env.SUD_APP_KEY && process.env.SUD_APP_SECRET),
       sudTestEnv: boolEnv('SUD_IS_TEST_ENV', true),
       sudLedgerReady: boolEnv('SUD_LEDGER_READY', false)
