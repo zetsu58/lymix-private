@@ -22,6 +22,13 @@ function uidErrorCode(result) {
   return Number(result?.sdkErrorCode ?? result?.errorCode ?? result?.sdk_error_code ?? 1005);
 }
 
+function legacyAuthDisabled(_req, res) {
+  return res.status(410).json({
+    code: 'LEGACY_AUTH_DISABLED',
+    message: 'Bu kimlik doğrulama ucu devre dışı. /api/v1/auth/* kullanın.'
+  });
+}
+
 async function realGetSSToken(req, res) {
   try {
     if (!sudAuth.available) return sudFailure(res, 1005, 1, 'SUD auth unavailable');
@@ -106,6 +113,9 @@ async function realUpdateScore(req, res) {
 const originalPost = express.application.post;
 express.application.post = function lymixProductionPost(path, ...handlers) {
   const replacements = {
+    '/api/auth/login': legacyAuthDisabled,
+    '/api/auth/refresh': legacyAuthDisabled,
+    '/api/auth/logout': legacyAuthDisabled,
     '/api/games/sud/callback/get_sstoken': realGetSSToken,
     '/api/games/sud/callback/get_user_info': realGetUserInfo,
     '/api/games/sud/callback/get_score': realGetScore,
