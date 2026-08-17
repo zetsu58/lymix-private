@@ -23,7 +23,7 @@ Future<void> _revoke(String id)async{try{await api.deleteJson('/api/v1/sessions/
 }
 ''')
 
-# Profile API source of truth and secure cached fallback.
+# Profile API is the live source of truth; secure session cache is fallback.
 write('lib/services/profile_service.dart', r'''import '../core/api_client.dart';
 import 'session_service.dart';
 class ProfileService{final ApiClient api;const ProfileService(this.api);Future<SessionUser> me()async{final data=Map<String,dynamic>.from(await api.getJson('/api/v1/me') as Map);final user=SessionUser.fromJson(data);final access=await SessionService.token()??'';final refresh=await SessionService.refreshToken()??'';if(access.isNotEmpty&&refresh.isNotEmpty)await SessionService.updateTokens(accessToken:access,refreshToken:refresh,sessionId:await SessionService.sessionId(),user:user);return user;}Future<Map<String,dynamic>> update({String? displayName,String? avatarUrl,String? bio,String? language})async=>Map<String,dynamic>.from(await api.patchJson('/api/v1/me',{'displayName':displayName,'avatarUrl':avatarUrl,'bio':bio,'language':language}..removeWhere((k,v)=>v==null)) as Map);}
@@ -36,13 +36,8 @@ if "import 'services/profile_service.dart';" not in s:
 s = s.replace("  Future<void> _load() async {\n    final current = await SessionService.user();\n    if (!mounted) return;\n    setState(() {\n      user = current;\n      loading = false;\n    });\n  }", "  Future<void> _load() async {\n    SessionUser? current;\n    try { current = await ProfileService(const ApiClient(tokenProvider: SessionService.token)).me(); } catch (_) { current = await SessionService.user(); }\n    if (!mounted) return;\n    setState(() { user = current; loading = false; });\n  }")
 showcase.write_text(s)
 
-# Remove stale duplicated backend folders from generated mobile source bundle; repo-root backend/admin-web are source of truth.
-for name in ('backend','admin_web','admin-web'):
-    p = root / name
-    if p.exists():
-        import shutil
-        shutil.rmtree(p)
-
-(root / 'README_INTEGRATED_SOURCE_TR.md').write_text('''# LYMIX V21.22.1 Integrated Flutter Source\n\nBu paket Codemagic source export üzerine production auth/session/profile/wallet, doğrudan kalıcı oda, oda navigation, koltuk tek dokunuş otur/kalk, native SUD Game Center ve Lymix launch entegrasyonları uygulanarak üretilir.\n\nProduction backend ve admin web GitHub repo kökündeki backend/ ve admin-web/ klasörleridir; mobil ZIP içine eski backend kopyası konmaz.\n\nVS Code: flutter pub get -> flutter analyze -> flutter test -> gerçek cihaz testi. SUD/Agora/Store secret ve credential değerleri source code içine yazılmaz.\n''')
+# Do not delete embedded folders here: current hardened Codemagic validates them.
+# The materializer excludes stale embedded backend/admin copies only from the final PC mobile ZIP.
+(root / 'README_INTEGRATED_SOURCE_TR.md').write_text('''# LYMIX V21.22.1 Integrated Flutter Source\n\nBu kaynak production auth/session/profile/wallet, doğrudan kalıcı oda, oda navigation, koltuk tek dokunuş otur/kalk, native SUD Game Center ve Lymix launch entegrasyonları uygulanarak üretilir.\n\nProduction backend ve admin web GitHub repo kökündeki `backend/` ve `admin-web/` klasörleridir. `scripts/materialize_integrated_flutter_source.py` final mobil ZIP oluştururken eski gömülü backend/admin kopyalarını dışarıda bırakır.\n\nVS Code: `flutter pub get` -> `flutter analyze` -> `flutter test` -> gerçek cihaz testi. SUD/Agora/Store secret ve credential değerleri source code içine yazılmaz.\n''')
 
 print('PC_HANDOFF_FINAL_FIXES_APPLIED')
