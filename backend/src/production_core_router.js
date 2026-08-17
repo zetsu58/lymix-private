@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { requestOtp, register, passwordLogin, refreshSession, revokeSession, revokeAllSessions, listDevices } = require('./auth_service');
 const { sendOtp } = require('./otp_provider');
-const { getProfile, updateProfile } = require('./profile_service');
+const { getProfile, getPublicProfile, updateProfile } = require('./profile_service');
 const { getWallet, listLedger, postLedgerEntry } = require('./ledger_service');
 const { recordRoomGameSession, closeRoomGameSession } = require('./sud_settlement_service');
 const { getMetrics, listUsers, setUserStatus, setUserRole, setDeviceBan, listAudit } = require('./admin_service');
@@ -28,6 +28,7 @@ function publicError(error) {
     USER_ALREADY_EXISTS: 409,
     INSUFFICIENT_BALANCE: 409,
     USER_NOT_FOUND: 404,
+    USER_NOT_ACTIVE: 403,
     USER_STATUS_INVALID: 400,
     USER_ROLE_INVALID: 400,
     JWT_SECRET_NOT_CONFIGURED: 503,
@@ -146,6 +147,11 @@ function createProductionCoreRouter() {
 
   router.patch('/me', requireAuth, async (req, res) => {
     try { return res.json(await updateProfile(String(req.auth.sub), req.body)); }
+    catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
+  });
+
+  router.get('/users/:userId/profile', requireAuth, async (req, res) => {
+    try { return res.json(await getPublicProfile(req.params.userId)); }
     catch (error) { const out = publicError(error); return res.status(out.status).json(out.body); }
   });
 
