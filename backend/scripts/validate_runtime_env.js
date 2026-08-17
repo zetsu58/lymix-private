@@ -15,6 +15,13 @@ if (value('JWT_SECRET').length < 32) errors.push('JWT_SECRET must be at least 32
 if (value('OTP_PEPPER').length < 16) errors.push('OTP_PEPPER must be at least 16 characters.');
 if (isProduction && enabled('ALLOW_DEV_OTP', false)) errors.push('ALLOW_DEV_OTP must be false in production.');
 
+const agoraId = value('AGORA_APP_ID');
+const agoraCertificate = value('AGORA_APP_CERTIFICATE');
+if (Boolean(agoraId) !== Boolean(agoraCertificate)) {
+  errors.push('AGORA_APP_ID and AGORA_APP_CERTIFICATE must be configured together.');
+}
+if (isProduction && !agoraId) warnings.push('Agora is not configured; voice-room token endpoint will remain unavailable.');
+
 const sudConfigured = Boolean(value('SUD_APP_ID') && value('SUD_APP_KEY') && value('SUD_APP_SECRET'));
 if (sudConfigured && isProduction && !enabled('SUD_VERIFY_CALLBACK_SIGNATURES', true)) {
   errors.push('SUD_VERIFY_CALLBACK_SIGNATURES must be true in production when SUD credentials exist.');
