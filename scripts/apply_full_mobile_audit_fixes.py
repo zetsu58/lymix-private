@@ -14,4 +14,8 @@ runpy.run_path(str(script_dir / 'apply_full_mobile_audit_core.py'), run_name='__
 sys.argv = [str(script_dir / 'apply_active_showcase_fixes.py'), str(root)]
 runpy.run_path(str(script_dir / 'apply_active_showcase_fixes.py'), run_name='__main__')
 
+# Align generated permanent-room navigation with the real room constructor.
+sys.argv = [str(script_dir / 'apply_showcase_constructor_hotfix.py'), str(root)]
+runpy.run_path(str(script_dir / 'apply_showcase_constructor_hotfix.py'), run_name='__main__')
+
 print('FULL_MOBILE_AUDIT_AND_ACTIVE_SHOWCASE_APPLIED')
