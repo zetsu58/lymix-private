@@ -5,6 +5,7 @@ const { createProductionCoreRouter } = require('./src/production_core_router');
 const { createExtendedAuthRouter } = require('./src/auth_extended_router');
 const { createSudOrderRouter } = require('./src/sud_order_router');
 const { createRuntimeRouter } = require('./src/runtime_router');
+const { createAgoraRouter } = require('./src/agora_router');
 const { startOrderReconciler } = require('./src/sud_order_reconciliation');
 const { getProfile, getSudUserInfo } = require('./src/profile_service');
 const { getSudAccount, applySudScoreUpdate, safeScore } = require('./src/sud_settlement_service');
@@ -123,6 +124,7 @@ express.application.listen = function lymixProductionListen(...args) {
     this.use('/api/v1', createRuntimeRouter());
     this.use('/api/v1', createProductionCoreRouter());
     this.use('/api/v1', createExtendedAuthRouter());
+    this.use('/api/v1', createAgoraRouter());
     this.use('/api/v1', createSudOrderRouter());
     mounted = true;
   }
