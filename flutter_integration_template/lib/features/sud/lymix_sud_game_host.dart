@@ -49,9 +49,7 @@ class _LymixSudGameHostState extends State<LymixSudGameHost>
         if (mounted) setState(() => _loading = false);
         widget.onStarted?.call();
       },
-      onGameDestroyed: () {
-        widget.onDestroyed?.call();
-      },
+      onGameDestroyed: () => widget.onDestroyed?.call(),
       onExpireCode: (_) => _renewCode(),
       onGameStateChange: (state, dataJson) {
         debugPrint('SUD game state=$state data=$dataJson');
@@ -103,7 +101,7 @@ class _LymixSudGameHostState extends State<LymixSudGameHost>
         widget.mgId,
         locale,
         _gameViewInfoJson(),
-        jsonEncode({}),
+        _gameConfigJson(),
       );
       if (load['retCode'] != 0) {
         throw StateError('SUD loadGame retCode=${load['retCode']}');
@@ -122,11 +120,26 @@ class _LymixSudGameHostState extends State<LymixSudGameHost>
     final box = _viewKey.currentContext?.findRenderObject() as RenderBox?;
     final logical = box?.size ?? MediaQuery.sizeOf(context);
     final ratio = MediaQuery.devicePixelRatioOf(context);
-    final width = (logical.width * ratio).ceil();
-    final height = (logical.height * ratio).ceil();
     return jsonEncode({
-      'view_size': {'width': width, 'height': height},
+      'ret_code': 0,
+      'ret_msg': 'success',
+      'view_size': {
+        'width': (logical.width * ratio).ceil(),
+        'height': (logical.height * ratio).ceil(),
+      },
       'view_game_rect': {'left': 0, 'top': 0, 'right': 0, 'bottom': 0},
+    });
+  }
+
+  String _gameConfigJson() {
+    return jsonEncode({
+      'gameMode': 1,
+      'gameCPU': 0,
+      'gameSoundControl': 0,
+      'gameSoundVolume': 100,
+      'viewScale': 1.0,
+      'autoScale': 0,
+      'ui': <String, dynamic>{},
     });
   }
 
