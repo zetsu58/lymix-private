@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { RtcTokenBuilder, RtcRole } = require('agora-token');
@@ -7,8 +8,16 @@ const { createAuthMiddleware } = require('./production_core_router');
 
 function cleanRoomId(value) {
   const roomId = String(value || '').trim();
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(roomId)) throw new Error('ROOM_ID_INVALID');
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(roomId)) throw new Error('ROOM_ID_INVALID');
   return roomId;
+}
+
+function buildChannelName(roomId) {
+  const clean = cleanRoomId(roomId);
+  const direct = `lymix_${clean}`;
+  if (Buffer.byteLength(direct, 'utf8') <= 64) return direct;
+  const digest = crypto.createHash('sha256').update(clean).digest('hex').slice(0, 40);
+  return `lymix_${digest}`;
 }
 
 function createAgoraRouter() {
@@ -31,8 +40,7 @@ function createAgoraRouter() {
         return res.status(503).json({ code: 'AGORA_NOT_CONFIGURED', message: 'Agora App ID/Certificate yapılandırılmadı.' });
       }
 
-      const roomId = cleanRoomId(req.body?.roomId);
-      const channelName = `lymix_${roomId}`;
+      const channelName = buildChannelName(req.body?.roomId);
       const account = String(req.auth.sub);
       const requested = Number(process.env.AGORA_TOKEN_TTL_SECONDS || 3600);
       const ttlSeconds = Number.isFinite(requested) ? Math.max(300, Math.min(7200, Math.trunc(requested))) : 3600;
@@ -63,4 +71,4 @@ function createAgoraRouter() {
   return router;
 }
 
-module.exports = { createAgoraRouter, cleanRoomId };
+module.exports = { createAgoraRouter, cleanRoomId, buildChannelName };
