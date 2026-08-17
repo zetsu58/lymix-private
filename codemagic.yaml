@@ -179,6 +179,7 @@ workflows:
               raise SystemExit('Agora Gradle file not found')
 
           patterns = [
+              (r"compileSdkVersion\s+safeExtGet\(\s*['\"]compileSdkVersion['\"]\s*,\s*\d+\s*\)", 'compileSdkVersion 36'),
               (r'compileSdkVersion\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion = 36'),
               (r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion 36'),
               (r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdk = 36'),
@@ -196,6 +197,9 @@ workflows:
               for line in text.splitlines():
                   if 'compileSdk' in line:
                       print(f'  {line.strip()}')
+              bad = [line.strip() for line in text.splitlines() if 'compileSdk' in line and re.search(r'\b31\b', line)]
+              if bad:
+                  raise SystemExit(f'Agora compileSdk 31 still present in {path}: {bad}')
 
           # Normalize every cached Android Flutter plugin as well.
           for path in root.rglob('build.gradle*'):
@@ -231,12 +235,12 @@ workflows:
           GRADLE
           cat "$HOME/.gradle/init.d/lymix-compile-sdk.gradle"
 
-          echo '=== Verify Agora no longer requests compileSdk 31 ==='
+          echo '=== Verify Agora effective Gradle source ==='
           while IFS= read -r f; do
             [ -n "$f" ] || continue
             grep -nE 'compileSdk|compileSdkVersion' "$f" || true
-            if grep -Eq 'compileSdk(Version)?[[:space:]]*(=)?[[:space:]]*31([^0-9]|$)' "$f"; then
-              echo "ERROR: compileSdk 31 still present in $f"
+            if grep -E 'compileSdk|compileSdkVersion' "$f" | grep -Eq '(^|[^0-9])31([^0-9]|$)'; then
+              echo "ERROR: a compileSdk line still references 31 in $f"
               exit 1
             fi
           done < "$AGORA_LIST"
