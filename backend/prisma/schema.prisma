@@ -55,25 +55,25 @@ enum GameOrderStatus {
 }
 
 model User {
-  id              String      @id @default(cuid())
-  phoneE164       String      @unique
-  username        String?     @unique
-  passwordHash    String?
-  role            UserRole    @default(USER)
-  status          UserStatus  @default(ACTIVE)
-  phoneVerifiedAt DateTime?
-  lastLoginAt     DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id               String      @id @default(cuid())
+  phoneE164        String      @unique
+  username         String?     @unique
+  passwordHash     String?
+  role             UserRole    @default(USER)
+  status           UserStatus  @default(ACTIVE)
+  phoneVerifiedAt  DateTime?
+  lastLoginAt      DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
-  profile         Profile?
-  devices         Device[]
-  sessions        Session[]
-  otpChallenges   OtpChallenge[]
-  wallet          Wallet?
-  ledgerEntries   LedgerEntry[]
-  gameOrders      GameOrder[]
-  auditLogs       AuditLog[]
+  profile          Profile?
+  devices          Device[]
+  sessions         Session[]
+  otpChallenges    OtpChallenge[]
+  wallet           Wallet?
+  ledgerEntries    LedgerEntry[]
+  gameOrders       GameOrder[]
+  auditLogs        AuditLog[]
   roomGameSessions RoomGameSession[]
 
   @@index([status])
@@ -121,21 +121,36 @@ model Device {
 }
 
 model Session {
-  id               String        @id @default(cuid())
+  id               String         @id @default(cuid())
   userId           String
   deviceId         String
-  refreshTokenHash String        @unique
-  status           SessionStatus @default(ACTIVE)
+  refreshTokenHash String         @unique
+  status           SessionStatus  @default(ACTIVE)
   expiresAt        DateTime
-  lastUsedAt       DateTime      @default(now())
+  lastUsedAt       DateTime       @default(now())
   revokedAt        DateTime?
   revokeReason     String?
-  createdAt        DateTime      @default(now())
+  createdAt        DateTime       @default(now())
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device        Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
 
   @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  sessionId  String
+  tokenHash  String    @unique
+  consumedAt DateTime?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, consumedAt])
   @@index([expiresAt])
 }
 
@@ -171,20 +186,20 @@ model Wallet {
 }
 
 model LedgerEntry {
-  id             String          @id @default(cuid())
-  userId         String
-  walletId       String
-  idempotencyKey String          @unique
-  externalRef    String?
-  direction      LedgerDirection
-  amount         BigInt
-  balanceBefore  BigInt
-  balanceAfter   BigInt
-  status         LedgerStatus    @default(POSTED)
-  source         String
-  metadata       Json?
-  reversedEntryId String?        @unique
-  createdAt      DateTime        @default(now())
+  id              String          @id @default(cuid())
+  userId          String
+  walletId        String
+  idempotencyKey  String          @unique
+  externalRef     String?
+  direction       LedgerDirection
+  amount          BigInt
+  balanceBefore   BigInt
+  balanceAfter    BigInt
+  status          LedgerStatus    @default(POSTED)
+  source          String
+  metadata        Json?
+  reversedEntryId String?         @unique
+  createdAt       DateTime        @default(now())
 
   user          User         @relation(fields: [userId], references: [id], onDelete: Restrict)
   wallet        Wallet       @relation(fields: [walletId], references: [id], onDelete: Restrict)
@@ -197,20 +212,20 @@ model LedgerEntry {
 }
 
 model GameOrder {
-  id             String          @id @default(cuid())
-  userId         String
-  outOrderId     String          @unique @db.VarChar(64)
-  sudOrderId     String?         @unique
-  mgId           String
-  roomId         String
-  command        String
-  value          Int
-  status         GameOrderStatus @default(CREATED)
-  requestPayload Json?
+  id              String          @id @default(cuid())
+  userId          String
+  outOrderId      String          @unique @db.VarChar(64)
+  sudOrderId      String?         @unique
+  mgId            String
+  roomId          String
+  command         String
+  value           Int
+  status          GameOrderStatus @default(CREATED)
+  requestPayload  Json?
   responsePayload Json?
-  lastError      String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  lastError       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
