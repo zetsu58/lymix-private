@@ -59,6 +59,7 @@ workflows:
         script: |
           set -euo pipefail
           python3 scripts/apply_full_mobile_audit_fixes.py source/Lymix
+          python3 scripts/verify_and_finalize_mobile_audit.py source/Lymix
           test -f source/Lymix/lib/screens/room_screen.dart
           test -f source/Lymix/lib/screens/home_screen.dart
           test -f source/Lymix/lib/screens/game_center_screen.dart
