@@ -152,17 +152,21 @@ workflows:
           set -euo pipefail
           cd source/Lymix
           PUB_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
+          AGORA_LIST="${TMPDIR:-/tmp}/lymix_agora_gradle_files.txt"
+          rm -f "$AGORA_LIST"
 
           echo '=== Locate Agora Android Gradle files ==='
-          mapfile -t AGORA_FILES < <(find "$PUB_ROOT" -type f \
+          find "$PUB_ROOT" -type f \
             \( -path '*agora_rtc_engine*/android/build.gradle' -o -path '*agora_rtc_engine*/android/build.gradle.kts' \) \
-            -print)
+            -print > "$AGORA_LIST"
 
-          if [ "${#AGORA_FILES[@]}" -eq 0 ]; then
+          if [ ! -s "$AGORA_LIST" ]; then
             echo 'ERROR: agora_rtc_engine Android Gradle file was not found.'
             find "$PUB_ROOT" -maxdepth 5 -type d -iname '*agora*' -print || true
             exit 1
           fi
+
+          cat "$AGORA_LIST"
 
           python3 - "$PUB_ROOT" <<'PY'
           from pathlib import Path
@@ -193,8 +197,7 @@ workflows:
                   if 'compileSdk' in line:
                       print(f'  {line.strip()}')
 
-          # Also normalize every cached Android Flutter plugin to avoid another
-          # dependency exposing the same old compileSdk issue later in the build.
+          # Normalize every cached Android Flutter plugin as well.
           for path in root.rglob('build.gradle*'):
               normalized = str(path).replace('\\', '/')
               if '/android/' not in normalized:
@@ -229,13 +232,14 @@ workflows:
           cat "$HOME/.gradle/init.d/lymix-compile-sdk.gradle"
 
           echo '=== Verify Agora no longer requests compileSdk 31 ==='
-          for f in "${AGORA_FILES[@]}"; do
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
             grep -nE 'compileSdk|compileSdkVersion' "$f" || true
             if grep -Eq 'compileSdk(Version)?[[:space:]]*(=)?[[:space:]]*31([^0-9]|$)' "$f"; then
               echo "ERROR: compileSdk 31 still present in $f"
               exit 1
             fi
-          done
+          done < "$AGORA_LIST"
 
       - name: Validate product integrity
         script: |
