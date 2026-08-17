@@ -147,47 +147,95 @@ workflows:
           test -f pubspec.lock
           flutter pub deps --style=compact > dependency-tree.txt
 
-      - name: Normalize Android plugin compileSdk values
+      - name: Force Android libraries to compileSdk 36
         script: |
           set -euo pipefail
           cd source/Lymix
           PUB_ROOT="${PUB_CACHE:-$HOME/.pub-cache}"
+
+          echo '=== Locate Agora Android Gradle files ==='
+          mapfile -t AGORA_FILES < <(find "$PUB_ROOT" -type f \
+            \( -path '*agora_rtc_engine*/android/build.gradle' -o -path '*agora_rtc_engine*/android/build.gradle.kts' \) \
+            -print)
+
+          if [ "${#AGORA_FILES[@]}" -eq 0 ]; then
+            echo 'ERROR: agora_rtc_engine Android Gradle file was not found.'
+            find "$PUB_ROOT" -maxdepth 5 -type d -iname '*agora*' -print || true
+            exit 1
+          fi
+
           python3 - "$PUB_ROOT" <<'PY'
           from pathlib import Path
           import re
           import sys
 
-          pub_root = Path(sys.argv[1])
+          root = Path(sys.argv[1])
+          candidates = [p for p in root.rglob('build.gradle*') if 'agora_rtc_engine' in str(p) and '/android/' in str(p).replace('\\', '/')]
+          if not candidates:
+              raise SystemExit('Agora Gradle file not found')
 
-          def patch(path: Path):
+          patterns = [
+              (r'compileSdkVersion\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion = 36'),
+              (r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion 36'),
+              (r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdk = 36'),
+              (r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdk 36'),
+          ]
+
+          for path in candidates:
+              text = path.read_text()
+              original = text
+              for pattern, replacement in patterns:
+                  text = re.sub(pattern, replacement, text)
+              if text != original:
+                  path.write_text(text)
+              print(f'AGORA_FILE={path}')
+              for line in text.splitlines():
+                  if 'compileSdk' in line:
+                      print(f'  {line.strip()}')
+
+          # Also normalize every cached Android Flutter plugin to avoid another
+          # dependency exposing the same old compileSdk issue later in the build.
+          for path in root.rglob('build.gradle*'):
+              normalized = str(path).replace('\\', '/')
+              if '/android/' not in normalized:
+                  continue
               try:
                   text = path.read_text()
               except Exception:
-                  return
+                  continue
               original = text
-              text = re.sub(r'compileSdkVersion\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion = 36', text)
-              text = re.sub(r'compileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdkVersion 36', text)
-              text = re.sub(r'compileSdk\s*=\s*(?:flutter\.compileSdkVersion|\d+)', 'compileSdk = 36', text)
-              text = re.sub(r'compileSdk\s+(?:flutter\.compileSdkVersion|\d+)', 'compileSdk 36', text)
+              for pattern, replacement in patterns:
+                  text = re.sub(pattern, replacement, text)
               if text != original:
                   path.write_text(text)
-                  print(f'patched compileSdk=36: {path}')
-
-          for hosted in (pub_root / 'hosted').glob('*'):
-              if not hosted.is_dir():
-                  continue
-              for package in hosted.iterdir():
-                  android = package / 'android'
-                  if not android.is_dir():
-                      continue
-                  for name in ('build.gradle', 'build.gradle.kts'):
-                      p = android / name
-                      if p.exists():
-                          patch(p)
           PY
 
-          echo '=== Agora compileSdk after patch ==='
-          find "$PUB_ROOT/hosted" -path '*agora_rtc_engine*/android/build.gradle*' -type f -print -exec grep -nE 'compileSdk|compileSdkVersion' {} \; || true
+          echo '=== Install Gradle global compileSdk override ==='
+          mkdir -p "$HOME/.gradle/init.d"
+          cat > "$HOME/.gradle/init.d/lymix-compile-sdk.gradle" <<'GRADLE'
+          allprojects { p ->
+              p.plugins.withId('com.android.application') {
+                  if (p.hasProperty('android')) {
+                      p.android.compileSdkVersion 36
+                  }
+              }
+              p.plugins.withId('com.android.library') {
+                  if (p.hasProperty('android')) {
+                      p.android.compileSdkVersion 36
+                  }
+              }
+          }
+          GRADLE
+          cat "$HOME/.gradle/init.d/lymix-compile-sdk.gradle"
+
+          echo '=== Verify Agora no longer requests compileSdk 31 ==='
+          for f in "${AGORA_FILES[@]}"; do
+            grep -nE 'compileSdk|compileSdkVersion' "$f" || true
+            if grep -Eq 'compileSdk(Version)?[[:space:]]*(=)?[[:space:]]*31([^0-9]|$)' "$f"; then
+              echo "ERROR: compileSdk 31 still present in $f"
+              exit 1
+            fi
+          done
 
       - name: Validate product integrity
         script: |
