@@ -1,4 +1,7 @@
 LYMIX
+
+
+
 Sesinle Bağlan, Dünyanı Paylaş.
 LYMIX; sesli sohbet odaları, sosyal etkileşim, sanal hediyeler, coin ekonomisi, ajans/yayıncı yönetimi, VIP ayrıcalıkları, etkinlikler ve oda içi mini oyunları tek platformda birleştirmeyi hedefleyen Flutter tabanlı bir sosyal eğlence uygulamasıdır.
 Bu README, LYMIX'in ürün kapsamını, teknik mimarisini, modüllerini, entegrasyonlarını, güvenlik yaklaşımını ve production hedeflerini tek yerde belgelemek amacıyla hazırlanmıştır.
